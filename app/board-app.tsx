@@ -17,7 +17,7 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import type { User } from "firebase/auth";
+import type { AppUser } from "@/lib/supabase-client";
 import {
   ExternalLink,
   FileText,
@@ -70,7 +70,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { Toaster } from "@/components/ui/sonner";
 import { cloneStarterBoard } from "@/lib/demo-data";
-import { firebaseConfigured } from "@/lib/firebase-config";
+import { supabaseConfigured } from "@/lib/supabase-config";
 import type {
   Attachment,
   BoardCard,
@@ -174,12 +174,12 @@ function AuthGate() {
     }
     setBusy(kind);
     try {
-      const firebase = await import("@/lib/firebase-client");
-      if (kind === "login") await firebase.login(email.trim(), password);
-      else await firebase.register(email.trim(), password);
+      const backend = await import("@/lib/supabase-client");
+      if (kind === "login") await backend.login(email.trim(), password);
+      else { const result = await backend.register(email.trim(), password); if (result.needsEmailConfirm) toast.success("확인 메일을 보냈습니다. 메일의 링크를 누른 뒤 로그인해 주세요."); }
     } catch (error) {
       const message = error instanceof Error ? error.message : "로그인하지 못했습니다.";
-      toast.error(message.replace("Firebase: ", ""));
+      toast.error(message);
     } finally {
       setBusy(null);
     }
@@ -199,7 +199,7 @@ function AuthGate() {
         <button className="secondary-button auth-secondary" onClick={() => void submit("register")}>
           {busy === "register" && <LoaderCircle className="spin" aria-hidden="true" />}새 계정 만들기
         </button>
-        <p className="auth-note">Firebase Console에서 이메일/비밀번호 로그인을 활성화해야 합니다.</p>
+        <p className="auth-note">Supabase 대시보드의 Authentication에서 이메일 로그인이 켜져 있어야 합니다.</p>
       </section>
       <Toaster position="bottom-center" />
     </main>
@@ -305,8 +305,8 @@ function SortableColumn({ column, readOnly, queryText, onAddCard, onOpenCard, on
 export function BoardApp() {
   const [routeReady, setRouteReady] = useState(false);
   const [sharedToken, setSharedToken] = useState<string | null>(null);
-  const [user, setUser] = useState<User | null>(null);
-  const [authReady, setAuthReady] = useState(!firebaseConfigured);
+  const [user, setUser] = useState<AppUser | null>(null);
+  const [authReady, setAuthReady] = useState(!supabaseConfigured);
   const [loading, setLoading] = useState(true);
   const [boards, setBoards] = useState<BoardData[]>([cloneStarterBoard()]);
   const [activeBoardId, setActiveBoardId] = useState("starter-board");
@@ -340,8 +340,8 @@ export function BoardApp() {
     async function initialize() {
       setLoading(true);
       if (sharedToken) {
-        const shared = firebaseConfigured
-          ? await (await import("@/lib/firebase-client")).loadSharedBoard(sharedToken)
+        const shared = supabaseConfigured
+          ? await (await import("@/lib/supabase-client")).loadSharedBoard(sharedToken)
           : readLocalBoards().find((board) => board.shareEnabled && board.shareToken === sharedToken) ?? null;
         if (!cancelled) {
           setBoards(shared ? [shared] : []);
@@ -350,7 +350,7 @@ export function BoardApp() {
         }
         return;
       }
-      if (!firebaseConfigured) {
+      if (!supabaseConfigured) {
         const localBoards = readLocalBoards();
         if (!cancelled) {
           setBoards(localBoards);
@@ -359,28 +359,28 @@ export function BoardApp() {
         }
         return;
       }
-      const firebase = await import("@/lib/firebase-client");
-      unsubscribe = firebase.observeUser(async (nextUser) => {
+      const backend = await import("@/lib/supabase-client");
+      unsubscribe = backend.observeUser(async (nextUser) => {
         if (cancelled) return;
         setUser(nextUser);
         setAuthReady(true);
         if (!nextUser) { setLoading(false); return; }
         try {
-          const remoteBoards = await firebase.loadOwnedBoards(nextUser.uid);
+          const remoteBoards = await backend.loadOwnedBoards(nextUser.uid);
           const nextBoards = remoteBoards.length ? remoteBoards : [{ ...cloneStarterBoard(), id: makeId("board") }];
           if (cancelled) return;
           setBoards(nextBoards);
           setActiveBoardId(nextBoards[0].id);
           if (!remoteBoards.length) setDirtyBoardId(nextBoards[0].id);
         } catch {
-          toast.error("Firebase에서 보드를 불러오지 못했습니다.");
+          toast.error("서버에서 보드를 불러오지 못했습니다.");
         } finally {
           if (!cancelled) setLoading(false);
         }
       });
     }
     void initialize().catch(() => {
-      if (!cancelled) { setLoading(false); setAuthReady(true); toast.error("앱을 시작하지 못했습니다. Firebase 설정을 확인해 주세요."); }
+      if (!cancelled) { setLoading(false); setAuthReady(true); toast.error("앱을 시작하지 못했습니다. Supabase 설정을 확인해 주세요."); }
     });
     return () => { cancelled = true; unsubscribe?.(); };
   }, [routeReady, sharedToken]);
@@ -392,7 +392,7 @@ export function BoardApp() {
     setSaveStatus("saving");
     const timer = window.setTimeout(async () => {
       try {
-        if (firebaseConfigured && user) await (await import("@/lib/firebase-client")).saveBoard(board, user.uid);
+        if (supabaseConfigured && user) await (await import("@/lib/supabase-client")).saveBoard(board, user.uid);
         else localStorage.setItem(LOCAL_KEY, JSON.stringify(boards));
         setSaveStatus("saved");
         setDirtyBoardId(null);
@@ -474,8 +474,8 @@ export function BoardApp() {
     const accepted = Array.from(files).filter((file) => {
       const allowed = file.type.startsWith("image/") || file.type === "application/pdf";
       if (!allowed || file.type.startsWith("video/")) { toast.error(`${file.name}: 이미지와 PDF만 첨부할 수 있습니다.`); return false; }
-      const maxSize = firebaseConfigured ? MAX_CLOUD_FILE : MAX_DEMO_FILE;
-      if (file.size > maxSize) { toast.error(`${file.name}: ${firebaseConfigured ? "15MB" : "2MB"} 이하 파일만 첨부할 수 있습니다.`); return false; }
+      const maxSize = supabaseConfigured ? MAX_CLOUD_FILE : MAX_DEMO_FILE;
+      if (file.size > maxSize) { toast.error(`${file.name}: ${supabaseConfigured ? "15MB" : "2MB"} 이하 파일만 첨부할 수 있습니다.`); return false; }
       return true;
     });
     if (!accepted.length) return;
@@ -484,7 +484,7 @@ export function BoardApp() {
       const uploaded: Attachment[] = [];
       for (const file of accepted) {
         const id = makeId("file");
-        if (firebaseConfigured && user) uploaded.push(await (await import("@/lib/firebase-client")).uploadAttachment(file, user.uid, activeBoard.id, id));
+        if (supabaseConfigured && user) uploaded.push(await (await import("@/lib/supabase-client")).uploadAttachment(file, user.uid, activeBoard.id, id));
         else uploaded.push({ id, name: file.name, kind: file.type === "application/pdf" ? "pdf" : "image", mimeType: file.type, size: file.size, url: await fileToDataUrl(file) });
       }
       setDraft((current) => current ? { ...current, attachments: [...current.attachments, ...uploaded] } : current);
@@ -532,12 +532,12 @@ export function BoardApp() {
     if (!deleteTarget || !activeBoard) return;
     const previous = structuredClone(activeBoard);
     if (deleteTarget.kind === "board") {
-      if (firebaseConfigured && user) { try { await (await import("@/lib/firebase-client")).removeBoard(activeBoard, user.uid); } catch { toast.error("보드를 삭제하지 못했습니다."); return; } }
+      if (supabaseConfigured && user) { try { await (await import("@/lib/supabase-client")).removeBoard(activeBoard, user.uid); } catch { toast.error("보드를 삭제하지 못했습니다."); return; } }
       const remaining = boards.filter((board) => board.id !== deleteTarget.id);
       const fallback = { ...cloneStarterBoard(), id: makeId("board"), title: "새 보드", createdAt: Date.now(), updatedAt: Date.now() };
       const next = remaining.length ? remaining : [fallback];
       setBoards(next); setActiveBoardId(next[0].id);
-      if (!firebaseConfigured) localStorage.setItem(LOCAL_KEY, JSON.stringify(next));
+      if (!supabaseConfigured) localStorage.setItem(LOCAL_KEY, JSON.stringify(next));
       else if (!remaining.length) setDirtyBoardId(fallback.id);
       toast.success("보드를 삭제했습니다.");
     } else if (deleteTarget.kind === "column") {
@@ -585,7 +585,7 @@ export function BoardApp() {
   }, [activeBoard, activeBoardId, loading, readOnly, routeReady, updateActiveBoard]);
 
   if (!routeReady || loading || !authReady) return <main className="loading-screen"><LoaderCircle className="spin" /><span>보드를 불러오는 중</span></main>;
-  if (firebaseConfigured && !sharedToken && !user) return <AuthGate />;
+  if (supabaseConfigured && !sharedToken && !user) return <AuthGate />;
   if (!activeBoard) return <main className="empty-share"><span className="brand-mark" aria-hidden="true">P</span><h1>공유 보드를 찾을 수 없습니다</h1><p>링크가 만료되었거나 공유가 해제되었습니다.</p></main>;
 
   return (
@@ -608,12 +608,12 @@ export function BoardApp() {
           <label className="search-box"><Search aria-hidden="true" /><span className="sr-only">카드 검색</span><input value={queryText} onChange={(event) => setQueryText(event.target.value)} placeholder="카드 검색" />{queryText && <button onClick={() => setQueryText("")} aria-label="검색어 지우기"><X /></button>}</label>
           {!readOnly && <span className={`save-status ${saveStatus}`}>{saveStatus === "saving" ? "저장 중" : saveStatus === "error" ? "저장 실패" : "저장됨"}</span>}
           {!readOnly && <button className="icon-button" onClick={() => setShareOpen(true)} aria-label="보드 공유"><Share2 aria-hidden="true" /></button>}
-          {!readOnly && firebaseConfigured && <button className="icon-button desktop-only" onClick={() => void import("@/lib/firebase-client").then((firebase) => firebase.logout())} aria-label="로그아웃"><LogOut aria-hidden="true" /></button>}
+          {!readOnly && supabaseConfigured && <button className="icon-button desktop-only" onClick={() => void import("@/lib/supabase-client").then((backend) => backend.logout())} aria-label="로그아웃"><LogOut aria-hidden="true" /></button>}
           {!readOnly && <button className="primary-button" onClick={() => openNewCard(activeBoard.columns[0]?.id)} disabled={!activeBoard.columns.length}><Plus aria-hidden="true" />카드 추가</button>}
         </div>
       </header>
 
-      {!firebaseConfigured && !readOnly && <aside className="demo-banner"><span>로컬 데모 모드 · Firebase 설정을 추가하면 계정과 클라우드 저장이 활성화됩니다.</span><a href="https://console.firebase.google.com/" target="_blank" rel="noreferrer">Firebase 열기 <ExternalLink /></a></aside>}
+      {!supabaseConfigured && !readOnly && <aside className="demo-banner"><span>로컬 데모 모드 · Supabase 설정을 추가하면 계정과 클라우드 저장이 활성화됩니다.</span><a href="https://supabase.com/dashboard" target="_blank" rel="noreferrer">Supabase 열기 <ExternalLink /></a></aside>}
 
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
         <SortableContext items={activeBoard.columns.map((column) => column.id)}>
@@ -639,7 +639,7 @@ export function BoardApp() {
             <label>제목<input value={draft.title} readOnly={readOnly} maxLength={120} onChange={(event) => setDraft({ ...draft, title: event.target.value })} placeholder="무엇을 모아둘까요?" /></label>
             <label>내용<textarea value={draft.body} readOnly={readOnly} maxLength={3000} onChange={(event) => setDraft({ ...draft, body: event.target.value })} placeholder="메모를 입력하세요" /></label>
             <section className="link-editor"><div className="section-label"><Link2 />링크</div>{!readOnly && <div className="link-input-row"><input value={linkInput} onChange={(event) => setLinkInput(event.target.value)} placeholder="https://..." /><button className="secondary-button" onClick={() => void fetchLinkPreview()} disabled={linkLoading}>{linkLoading && <LoaderCircle className="spin" />}미리보기</button></div>}{draft.link && <a className="link-preview" href={draft.link.url} target="_blank" rel="noreferrer">{draft.link.image && <img src={draft.link.image} alt="" />}<span><small>{isVideoUrl(draft.link.url) ? "동영상 링크 · 재생 없음" : draft.link.siteName}</small><strong>{draft.link.title}</strong><em>{draft.link.description}</em></span><ExternalLink /></a>}</section>
-            <section><div className="section-label"><UploadCloud />첨부</div>{!readOnly && <button className="drop-zone" type="button" onClick={() => fileInputRef.current?.click()} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); void addFiles(event.dataTransfer.files); }}>{uploading ? <LoaderCircle className="spin" /> : <UploadCloud />}<span>이미지 또는 PDF를 선택하거나 끌어 놓으세요.</span><small>{firebaseConfigured ? "파일당 최대 15MB" : "데모 모드 파일당 최대 2MB"} · 동영상 제외</small><input ref={fileInputRef} hidden type="file" multiple accept="image/*,application/pdf" onChange={(event) => event.target.files && void addFiles(event.target.files)} /></button>}
+            <section><div className="section-label"><UploadCloud />첨부</div>{!readOnly && <button className="drop-zone" type="button" onClick={() => fileInputRef.current?.click()} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); void addFiles(event.dataTransfer.files); }}>{uploading ? <LoaderCircle className="spin" /> : <UploadCloud />}<span>이미지 또는 PDF를 선택하거나 끌어 놓으세요.</span><small>{supabaseConfigured ? "파일당 최대 15MB" : "데모 모드 파일당 최대 2MB"} · 동영상 제외</small><input ref={fileInputRef} hidden type="file" multiple accept="image/*,application/pdf" onChange={(event) => event.target.files && void addFiles(event.target.files)} /></button>}
               {draft.attachments.length > 0 && <div className="attachment-grid">{draft.attachments.map((attachment) => <article className="attachment-item" key={attachment.id}>{attachment.kind === "image" ? <img src={attachment.url} alt={attachment.name} /> : <iframe title={attachment.name} src={`${attachment.url}#page=1&toolbar=0&navpanes=0`} />}<div><strong>{attachment.name}</strong><span>{attachment.kind === "pdf" ? "PDF" : "이미지"} · {formatBytes(attachment.size)}</span></div><a href={attachment.url} target="_blank" rel="noreferrer" aria-label={`${attachment.name} 열기`}><ExternalLink /></a>{!readOnly && <button onClick={() => deleteDraftAttachment(attachment)} aria-label={`${attachment.name} 삭제`}><X /></button>}</article>)}</div>}
             </section>
           </div>}
@@ -648,7 +648,7 @@ export function BoardApp() {
       </Dialog>
 
       <Dialog open={shareOpen} onOpenChange={setShareOpen}>
-        <DialogContent className="share-dialog"><DialogHeader><DialogTitle>보드 공유</DialogTitle><DialogDescription>링크를 가진 사람은 이 보드를 읽을 수 있습니다.</DialogDescription></DialogHeader><div className="share-switch-row"><div><strong>읽기 전용 링크</strong><span>{activeBoard.shareEnabled ? "공유 중" : "비공개"}</span></div><Switch checked={activeBoard.shareEnabled} onCheckedChange={setSharing} aria-label="읽기 전용 공유" /></div>{activeBoard.shareEnabled && <><div className="share-url"><input readOnly value={shareUrl} /><button onClick={() => { void navigator.clipboard.writeText(shareUrl); toast.success("공유 링크를 복사했습니다."); }}><Copy />복사</button></div><button className="text-button" onClick={regenerateShareLink}><RotateCcw />기존 링크를 끊고 새 링크 만들기</button>{!firebaseConfigured && <p className="share-warning">로컬 데모 링크는 이 브라우저에서만 확인할 수 있습니다.</p>}</>}</DialogContent>
+        <DialogContent className="share-dialog"><DialogHeader><DialogTitle>보드 공유</DialogTitle><DialogDescription>링크를 가진 사람은 이 보드를 읽을 수 있습니다.</DialogDescription></DialogHeader><div className="share-switch-row"><div><strong>읽기 전용 링크</strong><span>{activeBoard.shareEnabled ? "공유 중" : "비공개"}</span></div><Switch checked={activeBoard.shareEnabled} onCheckedChange={setSharing} aria-label="읽기 전용 공유" /></div>{activeBoard.shareEnabled && <><div className="share-url"><input readOnly value={shareUrl} /><button onClick={() => { void navigator.clipboard.writeText(shareUrl); toast.success("공유 링크를 복사했습니다."); }}><Copy />복사</button></div><button className="text-button" onClick={regenerateShareLink}><RotateCcw />기존 링크를 끊고 새 링크 만들기</button>{!supabaseConfigured && <p className="share-warning">로컬 데모 링크는 이 브라우저에서만 확인할 수 있습니다.</p>}</>}</DialogContent>
       </Dialog>
 
       <AlertDialog open={Boolean(deleteTarget)} onOpenChange={(open) => !open && setDeleteTarget(null)}>

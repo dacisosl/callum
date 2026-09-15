@@ -1,8 +1,0 @@
-# Firebase App Hosting 실행 설정
-# GitHub main 브랜치에 push하면 이 설정으로 빌드·배포됩니다.
-runConfig:
-  minInstances: 0
-  maxInstances: 2
-  concurrency: 80
-  cpu: 1
-  memoryMiB: 512

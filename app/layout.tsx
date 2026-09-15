@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import "./globals.css";
+import "./styles.css";
 
 export const metadata: Metadata = {
   title: "Pillar — 칼럼형 자료 보드",

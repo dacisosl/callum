@@ -47,3 +47,6 @@ next-env.d.ts
 
 # Claude Code 로컬 설정
 .claude/settings.local.json
+
+# TypeScript 증분 빌드 캐시
+tsconfig.tsbuildinfo

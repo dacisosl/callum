@@ -21,10 +21,10 @@ export const starterBoard: BoardData = {
           body: "링크를 붙여넣거나 이미지와 PDF를 끌어 놓을 수 있습니다.",
           attachments: [],
           link: {
-            url: "https://firebase.google.com/docs/firestore",
-            title: "Cloud Firestore 문서",
-            description: "Firebase의 유연하고 확장 가능한 데이터베이스 안내",
-            siteName: "Firebase",
+            url: "https://supabase.com/docs",
+            title: "Supabase 문서",
+            description: "Postgres 기반 백엔드 서비스 안내",
+            siteName: "Supabase",
           },
           createdAt: now - 4000,
           updatedAt: now - 4000,
@@ -60,9 +60,9 @@ export const starterBoard: BoardData = {
       collapsed: false,
       cards: [
         {
-          id: "welcome-firebase",
-          title: "Firebase 선택",
-          body: "Firestore와 Cloud Storage를 사용하는 프로젝트 구조가 준비되었습니다.",
+          id: "welcome-backend",
+          title: "Supabase 선택",
+          body: "Postgres와 Storage를 사용하는 프로젝트 구조가 준비되었습니다.",
           attachments: [],
           createdAt: now - 1000,
           updatedAt: now - 1000,

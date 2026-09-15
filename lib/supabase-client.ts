@@ -113,8 +113,15 @@ export async function uploadAttachment(
   boardId: string,
   attachmentId: string,
 ): Promise<Attachment> {
-  const safeName = file.name.replace(/[^a-zA-Z0-9._가-힣-]/g, "-");
-  const storagePath = `${ownerId}/${boardId}/${attachmentId}-${safeName}`;
+  // Storage 객체 키는 영문·숫자·일부 기호만 허용됩니다. 한글 등이 들어가면 업로드가
+  // 거부되므로 키는 ASCII로만 만들고, 원래 파일 이름은 name 필드에 그대로 보존합니다.
+  const dot = file.name.lastIndexOf(".");
+  const ext = dot > 0 ? file.name.slice(dot).toLowerCase().replace(/[^a-z0-9.]/g, "") : "";
+  const stem = (dot > 0 ? file.name.slice(0, dot) : file.name)
+    .replace(/[^a-zA-Z0-9._-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60) || "file";
+  const storagePath = `${ownerId}/${boardId}/${attachmentId}-${stem}${ext}`;
   const storage = supabase().storage.from(BUCKET);
   const { error } = await storage.upload(storagePath, file, {
     contentType: file.type,

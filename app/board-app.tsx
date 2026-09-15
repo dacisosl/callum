@@ -39,6 +39,7 @@ import {
   X,
   Copy,
   ChevronsUpDown,
+  LayoutGrid,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -69,6 +70,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Switch } from "@/components/ui/switch";
 import { Toaster } from "@/components/ui/sonner";
+import { BoardHome } from "./board-home";
 import { cloneStarterBoard } from "@/lib/demo-data";
 import { supabaseConfigured } from "@/lib/supabase-config";
 import type {
@@ -128,10 +130,10 @@ function isVideoUrl(value: string) {
 }
 
 function typeIcon(card: BoardCard) {
-  if (card.attachments.some((item) => item.kind === "pdf")) return FileText;
-  if (card.attachments.some((item) => item.kind === "image")) return ImageIcon;
-  if (card.link) return Link2;
-  return FileText;
+  if (card.attachments.some((item) => item.kind === "pdf")) return <FileText />;
+  if (card.attachments.some((item) => item.kind === "image")) return <ImageIcon />;
+  if (card.link) return <Link2 />;
+  return <FileText />;
 }
 
 function findCard(board: BoardData, id: string) {
@@ -218,7 +220,6 @@ function SortableCard({ card, readOnly, onOpen, onDuplicate, onDelete }: {
     disabled: readOnly,
     data: { type: "card" },
   });
-  const Icon = typeIcon(card);
   const firstImage = card.attachments.find((item) => item.kind === "image");
   const firstPdf = card.attachments.find((item) => item.kind === "pdf");
 
@@ -229,7 +230,7 @@ function SortableCard({ card, readOnly, onOpen, onDuplicate, onDelete }: {
       {card.link?.image && !firstImage && !firstPdf && <img className="card-image link-image" src={card.link.image} alt="" />}
 
       <button className="card-main" onClick={onOpen} aria-label={`${card.title} 열기`}>
-        <span className="card-heading"><span className="card-type" aria-hidden="true"><Icon /></span><strong>{card.title}</strong></span>
+        <span className="card-heading"><span className="card-type" aria-hidden="true">{typeIcon(card)}</span><strong>{card.title}</strong></span>
         {card.body && <span className="card-body">{card.body}</span>}
         {card.link && <span className="link-source">{isVideoUrl(card.link.url) ? "동영상 링크" : card.link.siteName || "링크"}<ExternalLink aria-hidden="true" /></span>}
         {card.attachments.length > 0 && <span className="attachment-count">첨부 {card.attachments.length}개</span>}
@@ -289,13 +290,14 @@ function SortableColumn({ column, readOnly, queryText, onAddCard, onOpenCard, on
 
       {!column.collapsed && (
         <>
+          {!readOnly && <button className="add-card-button" onClick={onAddCard} aria-label={`${column.title}에 카드 추가`} title="카드 추가"><Plus aria-hidden="true" /></button>}
           <SortableContext items={filteredCards.map((card) => card.id)} strategy={verticalListSortingStrategy}>
             <div className="card-list">
               {filteredCards.map((card) => <SortableCard key={card.id} card={card} readOnly={readOnly} onOpen={() => onOpenCard(card)} onDuplicate={() => onDuplicateCard(card)} onDelete={() => onDeleteCard(card)} />)}
               {needle && filteredCards.length === 0 && <p className="column-empty">일치하는 카드가 없습니다.</p>}
+              {!needle && filteredCards.length === 0 && <p className="column-empty">{readOnly ? "카드가 없습니다." : "위의 + 를 눌러 첫 카드를 추가하세요."}</p>}
             </div>
           </SortableContext>
-          {!readOnly && <button className="add-card-button" onClick={onAddCard}><Plus aria-hidden="true" />카드 추가</button>}
         </>
       )}
     </article>
@@ -322,13 +324,18 @@ export function BoardApp() {
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
   const [addingColumn, setAddingColumn] = useState(false);
   const [newColumnTitle, setNewColumnTitle] = useState("");
+  const [view, setView] = useState<"home" | "board">("home");
   const boardsRef = useRef(boards);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const activeBoard = boards.find((board) => board.id === activeBoardId) ?? boards[0];
   const readOnly = Boolean(sharedToken);
+  // 변경 표시와 저장 상태를 한 곳에서 바꿉니다. 저장 effect는 이 값만 보고 동작합니다.
+  const markDirty = useCallback((boardId: string) => { setDirtyBoardId(boardId); setSaveStatus("saving"); }, []);
 
   useEffect(() => { boardsRef.current = boards; }, [boards]);
   useEffect(() => {
+    // 주소의 ?share= 값은 브라우저에서만 읽을 수 있어 첫 렌더 뒤 한 번 동기화합니다.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setSharedToken(new URLSearchParams(window.location.search).get("share"));
     setRouteReady(true);
   }, []);
@@ -346,6 +353,8 @@ export function BoardApp() {
         if (!cancelled) {
           setBoards(shared ? [shared] : []);
           if (shared) setActiveBoardId(shared.id);
+          setView("board");
+          setAuthReady(true);
           setLoading(false);
         }
         return;
@@ -364,6 +373,7 @@ export function BoardApp() {
         if (cancelled) return;
         setUser(nextUser);
         setAuthReady(true);
+        setView("home");
         if (!nextUser) { setLoading(false); return; }
         try {
           const remoteBoards = await backend.loadOwnedBoards(nextUser.uid);
@@ -371,7 +381,7 @@ export function BoardApp() {
           if (cancelled) return;
           setBoards(nextBoards);
           setActiveBoardId(nextBoards[0].id);
-          if (!remoteBoards.length) setDirtyBoardId(nextBoards[0].id);
+          if (!remoteBoards.length) markDirty(nextBoards[0].id);
         } catch {
           toast.error("서버에서 보드를 불러오지 못했습니다.");
         } finally {
@@ -383,13 +393,12 @@ export function BoardApp() {
       if (!cancelled) { setLoading(false); setAuthReady(true); toast.error("앱을 시작하지 못했습니다. Supabase 설정을 확인해 주세요."); }
     });
     return () => { cancelled = true; unsubscribe?.(); };
-  }, [routeReady, sharedToken]);
+  }, [markDirty, routeReady, sharedToken]);
 
   useEffect(() => {
     if (!dirtyBoardId || readOnly) return;
     const board = boards.find((item) => item.id === dirtyBoardId);
     if (!board) return;
-    setSaveStatus("saving");
     const timer = window.setTimeout(async () => {
       try {
         if (supabaseConfigured && user) await (await import("@/lib/supabase-client")).saveBoard(board, user.uid);
@@ -404,17 +413,18 @@ export function BoardApp() {
     return () => window.clearTimeout(timer);
   }, [boards, dirtyBoardId, readOnly, user]);
 
-  const updateActiveBoard = useCallback((updater: (board: BoardData) => BoardData) => {
-    setBoards((current) => current.map((board) => board.id === activeBoardId ? { ...updater(board), updatedAt: Date.now() } : board));
-    setDirtyBoardId(activeBoardId);
-  }, [activeBoardId]);
+  const updateBoard = useCallback((boardId: string, updater: (board: BoardData) => BoardData) => {
+    setBoards((current) => current.map((board) => board.id === boardId ? { ...updater(board), updatedAt: Date.now() } : board));
+    markDirty(boardId);
+  }, [markDirty]);
+  const updateActiveBoard = useCallback((updater: (board: BoardData) => BoardData) => updateBoard(activeBoardId, updater), [activeBoardId, updateBoard]);
 
   const pushUndo = useCallback((previous: BoardData, message: string) => {
     toast(message, { action: { label: "실행 취소", onClick: () => {
       setBoards((current) => current.map((board) => board.id === previous.id ? previous : board));
-      setDirtyBoardId(previous.id);
+      markDirty(previous.id);
     } } });
-  }, []);
+  }, [markDirty]);
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }), useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }));
 
@@ -462,7 +472,7 @@ export function BoardApp() {
     updateActiveBoard((board) => ({ ...board, columns: board.columns.map((column) => {
       if (column.id !== draft.columnId) return column;
       if (draft.id) return { ...column, cards: column.cards.map((card) => card.id === draft.id ? { ...card, title: draft.title.trim(), body: draft.body.trim(), attachments: draft.attachments, link: draft.link, updatedAt: now } : card) };
-      return { ...column, cards: [...column.cards, { id: makeId("card"), title: draft.title.trim(), body: draft.body.trim(), attachments: draft.attachments, link: draft.link, createdAt: now, updatedAt: now }] };
+      return { ...column, cards: [{ id: makeId("card"), title: draft.title.trim(), body: draft.body.trim(), attachments: draft.attachments, link: draft.link, createdAt: now, updatedAt: now }, ...column.cards] };
     }) }));
     setEditorOpen(false);
     setDraft(null);
@@ -488,7 +498,7 @@ export function BoardApp() {
         else uploaded.push({ id, name: file.name, kind: file.type === "application/pdf" ? "pdf" : "image", mimeType: file.type, size: file.size, url: await fileToDataUrl(file) });
       }
       setDraft((current) => current ? { ...current, attachments: [...current.attachments, ...uploaded] } : current);
-    } catch { toast.error("파일을 업로드하지 못했습니다."); }
+    } catch (error) { toast.error(error instanceof Error && error.message ? `업로드 실패: ${error.message}` : "파일을 업로드하지 못했습니다."); }
     finally { setUploading(false); if (fileInputRef.current) fileInputRef.current.value = ""; }
   }
 
@@ -525,20 +535,22 @@ export function BoardApp() {
   function createBoard() {
     const now = Date.now();
     const board: BoardData = { id: makeId("board"), title: "새 보드", shareEnabled: false, shareToken: "", createdAt: now, updatedAt: now, columns: [{ id: makeId("column"), title: "첫 번째 칼럼", collapsed: false, cards: [] }] };
-    setBoards((current) => [board, ...current]); setActiveBoardId(board.id); setDirtyBoardId(board.id);
+    setBoards((current) => [board, ...current]); setActiveBoardId(board.id); markDirty(board.id); setView("board");
   }
 
   async function confirmDelete() {
     if (!deleteTarget || !activeBoard) return;
     const previous = structuredClone(activeBoard);
     if (deleteTarget.kind === "board") {
-      if (supabaseConfigured && user) { try { await (await import("@/lib/supabase-client")).removeBoard(activeBoard, user.uid); } catch { toast.error("보드를 삭제하지 못했습니다."); return; } }
+      const target = boards.find((board) => board.id === deleteTarget.id);
+      if (!target) { setDeleteTarget(null); return; }
+      if (supabaseConfigured && user) { try { await (await import("@/lib/supabase-client")).removeBoard(target, user.uid); } catch { toast.error("보드를 삭제하지 못했습니다."); return; } }
       const remaining = boards.filter((board) => board.id !== deleteTarget.id);
       const fallback = { ...cloneStarterBoard(), id: makeId("board"), title: "새 보드", createdAt: Date.now(), updatedAt: Date.now() };
       const next = remaining.length ? remaining : [fallback];
-      setBoards(next); setActiveBoardId(next[0].id);
+      setBoards(next); if (activeBoardId === deleteTarget.id) setActiveBoardId(next[0].id);
       if (!supabaseConfigured) localStorage.setItem(LOCAL_KEY, JSON.stringify(next));
-      else if (!remaining.length) setDirtyBoardId(fallback.id);
+      else if (!remaining.length) markDirty(fallback.id);
       toast.success("보드를 삭제했습니다.");
     } else if (deleteTarget.kind === "column") {
       updateActiveBoard((board) => ({ ...board, columns: board.columns.filter((column) => column.id !== deleteTarget.id) }));
@@ -575,7 +587,7 @@ export function BoardApp() {
           const board = boardsRef.current.find((item) => item.id === activeBoardId);
           if (!board?.columns.some((column) => column.id === value.columnId)) throw new Error("칼럼을 찾을 수 없습니다.");
           const card: BoardCard = { id: makeId("card"), title: value.title.trim(), body: typeof value.body === "string" ? value.body.trim() : "", attachments: [], createdAt: Date.now(), updatedAt: Date.now() };
-          updateActiveBoard((current) => ({ ...current, columns: current.columns.map((column) => column.id === value.columnId ? { ...column, cards: [...column.cards, card] } : column) }));
+          updateActiveBoard((current) => ({ ...current, columns: current.columns.map((column) => column.id === value.columnId ? { ...column, cards: [card, ...column.cards] } : column) }));
           return { id: card.id, title: card.title, columnId: value.columnId };
         },
       }, { signal: lifecycle.signal });
@@ -590,12 +602,26 @@ export function BoardApp() {
 
   return (
     <main className="app-shell">
+      {view === "home" && !readOnly ? (
+        <BoardHome
+          boards={boards}
+          demo={!supabaseConfigured}
+          showLogout={supabaseConfigured}
+          onOpen={(boardId) => { setActiveBoardId(boardId); setView("board"); }}
+          onCreate={createBoard}
+          onRename={(board) => { const title = window.prompt("새 보드 이름", board.title)?.trim(); if (title) updateBoard(board.id, (item) => ({ ...item, title })); }}
+          onDelete={(board) => setDeleteTarget({ kind: "board", id: board.id, title: board.title })}
+          onLogout={() => void import("@/lib/supabase-client").then((backend) => backend.logout())}
+        />
+      ) : (<>
       <header className="topbar">
         <div className="brand-row">
-          <span className="brand-mark" aria-hidden="true">P</span>
+          {readOnly ? <span className="brand-mark" aria-hidden="true">P</span> : <button className="brand-mark brand-home" onClick={() => setView("home")} aria-label="모든 보드 보기">P</button>}
           <DropdownMenu>
             <DropdownMenuTrigger asChild disabled={readOnly}><button className="board-switcher"><span>{readOnly ? "공유 보드" : "내 보드"}</span><strong>{activeBoard.title}</strong>{!readOnly && <ChevronsUpDown aria-hidden="true" />}</button></DropdownMenuTrigger>
             {!readOnly && <DropdownMenuContent align="start" className="board-menu">
+              <DropdownMenuItem onClick={() => setView("home")}><LayoutGrid />모든 보드 보기</DropdownMenuItem>
+              <DropdownMenuSeparator />
               {boards.map((board) => <DropdownMenuItem key={board.id} onClick={() => setActiveBoardId(board.id)}>{board.title}{board.id === activeBoard.id && <span className="current-mark">현재</span>}</DropdownMenuItem>)}
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={createBoard}><Plus />새 보드</DropdownMenuItem>
@@ -609,12 +635,13 @@ export function BoardApp() {
           {!readOnly && <span className={`save-status ${saveStatus}`}>{saveStatus === "saving" ? "저장 중" : saveStatus === "error" ? "저장 실패" : "저장됨"}</span>}
           {!readOnly && <button className="icon-button" onClick={() => setShareOpen(true)} aria-label="보드 공유"><Share2 aria-hidden="true" /></button>}
           {!readOnly && supabaseConfigured && <button className="icon-button desktop-only" onClick={() => void import("@/lib/supabase-client").then((backend) => backend.logout())} aria-label="로그아웃"><LogOut aria-hidden="true" /></button>}
-          {!readOnly && <button className="primary-button" onClick={() => openNewCard(activeBoard.columns[0]?.id)} disabled={!activeBoard.columns.length}><Plus aria-hidden="true" />카드 추가</button>}
         </div>
       </header>
 
       {!supabaseConfigured && !readOnly && <aside className="demo-banner"><span>로컬 데모 모드 · Supabase 설정을 추가하면 계정과 클라우드 저장이 활성화됩니다.</span><a href="https://supabase.com/dashboard" target="_blank" rel="noreferrer">Supabase 열기 <ExternalLink /></a></aside>}
 
+      <div className="board-area">
+      <div className="board-heading"><div><span className="board-kicker">{readOnly ? "공유 보드" : "내 보드"} · 칼럼 {activeBoard.columns.length} · 카드 {activeBoard.columns.reduce((sum, column) => sum + column.cards.length, 0)}</span><h1>{activeBoard.title}</h1></div></div>
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
         <SortableContext items={activeBoard.columns.map((column) => column.id)}>
           <section className="board" aria-label={`${activeBoard.title} 보드`}>
@@ -626,6 +653,9 @@ export function BoardApp() {
           </section>
         </SortableContext>
       </DndContext>
+      </div>
+      {!readOnly && <button className="primary-button fab" onClick={() => openNewCard(activeBoard.columns[0]?.id)} disabled={!activeBoard.columns.length}><Plus aria-hidden="true" />카드 추가</button>}
+      </>)}
 
       <Dialog open={editorOpen} onOpenChange={(open) => { setEditorOpen(open); if (!open) setDraft(null); }}>
         <DialogContent className="card-dialog" onPaste={(event) => {

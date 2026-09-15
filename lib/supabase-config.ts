@@ -11,4 +11,6 @@ export const supabaseConfig = {
   anonKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || defaults.anonKey,
 };
 
-export const supabaseConfigured = Boolean(supabaseConfig.url && supabaseConfig.anonKey);
+// 로컬에서 UI만 확인할 때 NEXT_PUBLIC_DEMO_MODE=1 을 주면 서버 없이 브라우저 데모 모드로 실행됩니다.
+export const supabaseConfigured =
+  process.env.NEXT_PUBLIC_DEMO_MODE !== "1" && Boolean(supabaseConfig.url && supabaseConfig.anonKey);

@@ -252,23 +252,22 @@ function fileToDataUrl(file: File) {
 function AuthGate() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [busy, setBusy] = useState<"login" | "register" | null>(null);
+  const [busy, setBusy] = useState(false);
 
-  async function submit(kind: "login" | "register") {
+  // 가입 화면은 없습니다. 계정은 Supabase 대시보드의 Authentication에서 만듭니다.
+  async function submit() {
     if (!email.trim() || password.length < 6) {
       toast.error("이메일과 6자 이상의 비밀번호를 입력해 주세요.");
       return;
     }
-    setBusy(kind);
+    setBusy(true);
     try {
-      const backend = await import("@/lib/supabase-client");
-      if (kind === "login") await backend.login(email.trim(), password);
-      else { const result = await backend.register(email.trim(), password); if (result.needsEmailConfirm) toast.success("확인 메일을 보냈습니다. 메일의 링크를 누른 뒤 로그인해 주세요."); }
+      await (await import("@/lib/supabase-client")).login(email.trim(), password);
     } catch (error) {
       const message = error instanceof Error ? error.message : "로그인하지 못했습니다.";
       toast.error(message);
     } finally {
-      setBusy(null);
+      setBusy(false);
     }
   }
 
@@ -279,12 +278,9 @@ function AuthGate() {
         <h1>Pillar</h1>
         <p>내 자료 보드에 로그인하세요.</p>
         <label>이메일<input type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} /></label>
-        <label>비밀번호<input type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} onKeyDown={(event) => event.key === "Enter" && void submit("login")} /></label>
-        <button className="primary-button auth-primary" onClick={() => void submit("login")}>
-          {busy === "login" && <LoaderCircle className="spin" aria-hidden="true" />}로그인
-        </button>
-        <button className="secondary-button auth-secondary" onClick={() => void submit("register")}>
-          {busy === "register" && <LoaderCircle className="spin" aria-hidden="true" />}새 계정 만들기
+        <label>비밀번호<input type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} onKeyDown={(event) => event.key === "Enter" && void submit()} /></label>
+        <button className="primary-button auth-primary" onClick={() => void submit()} disabled={busy}>
+          {busy && <LoaderCircle className="spin" aria-hidden="true" />}로그인
         </button>
         <p className="auth-note">Supabase 대시보드의 Authentication에서 이메일 로그인이 켜져 있어야 합니다.</p>
       </section>

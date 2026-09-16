@@ -43,7 +43,7 @@ npm run dev
 
 1. https://supabase.com 에서 프로젝트를 만듭니다. 리전은 `Northeast Asia (Seoul)`을 권장합니다.
 2. SQL Editor에 `supabase/schema.sql` 내용을 붙여 넣고 실행합니다. 테이블, RLS 정책, 공유 조회 함수, 첨부 버킷이 한 번에 만들어집니다.
-3. Authentication → Providers → Email에서 **Confirm email**을 끕니다. 켜 두면 가입 직후 메일 인증을 거쳐야 로그인됩니다.
+3. Authentication → Users → Add user에서 쓸 계정을 직접 만듭니다. 앱에는 로그인 화면만 있고 가입 화면은 없습니다. Providers → Email의 **Confirm email**을 켜 두었다면 메일 인증을 마쳐야 로그인되므로, 혼자 쓴다면 꺼 두는 편이 간단합니다.
 4. Project Settings → API의 **Project URL**과 **anon public** 키를 `lib/supabase-config.ts`의 `defaults`에 넣습니다. 로컬에서만 다른 프로젝트를 쓰려면 `.env.local`의 `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`가 우선합니다.
 
 anon 키는 브라우저에 노출되는 공개값입니다. 접근 제어는 `schema.sql`의 행 수준 보안(RLS) 정책이 담당합니다.

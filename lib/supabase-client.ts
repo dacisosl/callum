@@ -21,7 +21,6 @@ function toUser(user: { id: string; email?: string } | null | undefined): AppUse
 
 const messages: Record<string, string> = {
   "Invalid login credentials": "이메일 또는 비밀번호가 올바르지 않습니다.",
-  "User already registered": "이미 가입된 이메일입니다.",
   "Email not confirmed": "이메일 인증이 필요합니다. 받은 메일의 링크를 눌러 주세요.",
   "Email rate limit exceeded": "잠시 후 다시 시도해 주세요.",
 };
@@ -47,13 +46,6 @@ export function observeUser(callback: (user: AppUser | null) => void) {
 export async function login(email: string, password: string) {
   const { error } = await supabase().auth.signInWithPassword({ email, password });
   if (error) throw translate(error);
-}
-
-export async function register(email: string, password: string) {
-  const { data, error } = await supabase().auth.signUp({ email, password });
-  if (error) throw translate(error);
-  // 대시보드에서 이메일 확인이 켜져 있으면 세션 없이 돌아옵니다.
-  return { needsEmailConfirm: !data.session };
 }
 
 export async function logout() {

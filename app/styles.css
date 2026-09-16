@@ -157,10 +157,26 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .pdf-cover span { font-size: 13px; font-weight: 850; letter-spacing: .05em; }
 /* 카드 본문 줄: 왼쪽에 잡는 손잡이, 그 옆에 내용 */
 .card-row { display: flex; align-items: flex-start; }
-.card-main { width: 100%; display: block; padding: 13px 13px 14px; border: 0; background: transparent; text-align: left; cursor: pointer; }
+.card-main { width: 100%; display: grid; gap: 9px; padding: 11px 13px 12px; border: 0; background: transparent; text-align: left; cursor: pointer; }
 .card-row .card-main { min-width: 0; flex: 1; }
-.card-row .drag-handle { flex: none; margin: 12px 0 0 7px; }
-.card-row .drag-handle + .card-main { padding-left: 5px; }
+.card-row .drag-handle { flex: none; margin: 9px 0 0 6px; }
+.card-row .drag-handle + .card-main { padding-left: 4px; }
+/* Padlet식 배치: 작성자 줄 → 제목 → 미리보기 → 사이트·링크 제목 → 본문 → 댓글 줄 */
+.card-author { display: flex; align-items: center; gap: 6px; min-width: 0; padding-right: 30px; color: #6b7881; font-size: 12px; }
+.card-avatar { width: 22px; height: 22px; display: grid; place-items: center; flex: none; border-radius: 999px; background: hsl(var(--column-hue) 45% 42%); color: white; font-size: 11px; font-weight: 800; }
+.card-author-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #34424c; font-weight: 750; }
+.card-guest { flex: none; padding: 1px 6px; border-radius: 999px; background: #eef3ff; color: #2f56ad; font-size: 10px; font-style: normal; font-weight: 750; }
+.card-time { flex: none; color: #8a969e; }
+.card-time::before { content: "·"; margin-right: 6px; }
+.card-title { font-size: 15px; line-height: 1.4; letter-spacing: -.01em; overflow-wrap: anywhere; word-break: keep-all; }
+.card-preview { position: relative; display: block; overflow: hidden; border-radius: 10px; background: #eef2f5; }
+.card-preview .card-image { aspect-ratio: 16 / 9; }
+.thumb-badge { position: absolute; left: 8px; bottom: 8px; max-width: calc(100% - 16px); padding: 3px 8px; overflow: hidden; border-radius: 7px; background: rgba(255,255,255,.93); color: #34424c; font-size: 11px; font-weight: 750; text-overflow: ellipsis; white-space: nowrap; box-shadow: 0 1px 3px rgba(20,30,38,.15); }
+.card-link-line { overflow: hidden; color: #5b7fb8; font-size: 12px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+.card-footer { display: flex; align-items: center; justify-content: space-between; margin-top: 1px; padding-top: 8px; border-top: 1px solid rgba(20,30,38,.08); color: #7a868e; font-size: 12px; }
+.card-footer-add { display: inline-flex; align-items: center; gap: 5px; font-weight: 650; }
+.card-footer-add svg { width: 14px; }
+.card-footer .comment-count { margin: 0; min-width: 20px; height: 20px; display: inline-grid; place-items: center; padding: 0 6px; border-radius: 999px; background: #eef2f5; font-size: 11px; }
 /* 카드 색. 편집 모달의 "카드 색"에서 고르며, 이름은 lib/board-types.ts의 CARD_TONES와 같습니다. */
 .card-tone-default { --tone-bg: #ffffff; --tone-edge: rgba(255,255,255,.95); }
 .card-tone-yellow { --tone-bg: #fff6c9; --tone-edge: #f3e3a1; }
@@ -181,12 +197,14 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .tone-swatch.is-active { box-shadow: 0 0 0 2px white, 0 0 0 4px var(--primary); }
 /* 대표 이미지가 없는 링크 카드의 대체 표지 */
 .link-cover { height: 96px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 7px; background: linear-gradient(140deg, #eef3fb 0%, #e7ecf6 100%); }
+.card-preview.link-cover { display: flex; }
 .link-cover img { width: 34px; height: 34px; object-fit: contain; border-radius: 8px; background: white; box-shadow: 0 1px 4px rgba(20,30,38,.12); }
 .link-cover > svg { width: 24px; color: #6b7d96; }
 .link-cover span { max-width: 88%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #5a6875; font-size: 12px; font-weight: 700; }
 .link-preview > img.is-icon { width: 46px; height: 46px; margin: 0 19px; object-fit: contain; border-radius: 9px; background: white; }
 .pdf-preview, .video-preview { position: relative; display: block; overflow: hidden; background: #eef2f5; }
 .pdf-preview { height: 150px; background: #faeeec; }
+.card-preview.pdf-preview, .card-preview.video-preview { display: block; }
 .pdf-preview iframe { width: 100%; height: 100%; display: block; border: 0; pointer-events: none; background: #faeeec; }
 .preview-badge, .play-badge { position: absolute; display: inline-flex; align-items: center; justify-content: center; gap: 4px; pointer-events: none; }
 .preview-badge { right: 8px; bottom: 8px; padding: 3px 8px; border-radius: 999px; background: rgba(180,35,24,.92); color: white; font-size: 11px; font-weight: 800; letter-spacing: .05em; }
@@ -196,13 +214,13 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .play-badge svg { width: 20px; margin-left: 2px; fill: currentColor; }
 .card-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
 /* 공유 링크로 들어온 사람이 올린 카드 표시 */
-.guest-tag { display: inline-flex; align-items: center; gap: 4px; margin-top: 7px; padding: 2px 8px; border-radius: 999px; background: #eef3ff; color: #2f56ad; font-size: 11px; font-style: normal; font-weight: 700; }
+.guest-tag { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px; background: #eef3ff; color: #2f56ad; font-size: 11px; font-style: normal; font-weight: 700; }
 .guest-tag svg { width: 12px; }
 .viewer-kicker .guest-tag { margin-top: 0; margin-left: 2px; }
 .comment-count { display: inline-flex; align-items: center; gap: 4px; margin-top: 10px; color: #6b7881; font-size: 12px; font-weight: 650; }
 .comment-count svg { width: 13px; }
 /* 카드 타일 맨 아래에 보이는 첫 댓글 미리보기 */
-.comment-peek { display: grid; gap: 3px; margin-top: 10px; padding: 8px 10px; border-radius: 10px; background: rgba(20,30,38,.05); }
+.comment-peek { display: grid; gap: 3px; padding: 8px 10px; border-radius: 10px; background: rgba(20,30,38,.05); }
 .board-card[class*="card-tone-"] .comment-peek { background: rgba(255,255,255,.55); }
 .comment-peek-head { display: flex; align-items: center; gap: 5px; color: #5f6c76; font-size: 11px; }
 .comment-peek-head svg { width: 12px; flex: 0 0 12px; }
@@ -215,12 +233,12 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .card-type { width: 28px; height: 28px; display: grid; place-items: center; flex: 0 0 28px; border-radius: 8px; color: #41515c; background: #eef2f5; }
 .card-type svg { width: 14px; }
 /* 카드 타일 본문도 뷰어처럼 줄바꿈을 살립니다. pre-line은 줄바꿈만 남기고 군더더기 공백은 접습니다. */
-.card-body { display: -webkit-box; margin-top: 8px; overflow: hidden; color: #64717a; font-size: 13px; line-height: 1.55; white-space: pre-line; overflow-wrap: anywhere; -webkit-line-clamp: 4; -webkit-box-orient: vertical; }
-.link-source, .attachment-count { display: inline-flex; align-items: center; gap: 4px; margin-top: 10px; color: #6b7881; font-size: 12px; font-weight: 650; }
+.card-body { display: -webkit-box; overflow: hidden; color: #4b5860; font-size: 13px; line-height: 1.6; white-space: pre-line; overflow-wrap: anywhere; -webkit-line-clamp: 8; -webkit-box-orient: vertical; }
+.link-source, .attachment-count { display: inline-flex; align-items: center; gap: 4px; color: #6b7881; font-size: 12px; font-weight: 650; }
 .link-source { color: #315fbc; }
 .link-source svg { width: 12px; }
 
-.card-controls { position: absolute; top: 9px; right: 8px; gap: 1px; opacity: 0; transition: opacity 140ms ease; }
+.card-controls { position: absolute; top: 8px; right: 8px; gap: 1px; opacity: 0; transition: opacity 140ms ease; }
 .board-card:hover .card-controls, .board-card:focus-within .card-controls { opacity: 1; }
 .drag-handle, .card-menu-button { display: grid; place-items: center; border-radius: 7px; color: #687680; }
 .card-menu-button { width: 27px; height: 28px; background: rgba(255,255,255,.92); }

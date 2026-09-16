@@ -61,6 +61,8 @@ export interface BoardCard {
   attachments: Attachment[];
   link?: LinkPreviewData;
   tone?: CardTone;
+  // 주인이 만든 카드에 저장하는 표시 이름(이메일 앞부분)
+  authorName?: string;
   // 공유 링크로 들어온 사람이 올린 카드면 작성자 이름이 들어갑니다.
   guestAuthor?: string;
   createdAt: number;

@@ -336,6 +336,8 @@ function SortableCard({ card, readOnly, commentSummary, onOpen, onEdit, onDuplic
     <article ref={setNodeRef} className={`board-card${tone}${isDragging ? " is-dragging" : ""}`} style={{ transform: CSS.Transform.toString(transform), transition }}>
       <CardPreview card={card} />
 
+      <div className="card-row">
+      {!readOnly && <button className="drag-handle" aria-label={`${card.title} 이동`} {...attributes} {...listeners}><GripVertical aria-hidden="true" /></button>}
       <button className="card-main" onClick={onOpen} aria-label={`${card.title} 크게 보기`}>
         <span className="card-heading"><span className="card-type" aria-hidden="true">{typeIcon(card)}</span><strong>{card.title}</strong></span>
         {card.body && <span className="card-body">{card.body}</span>}
@@ -356,10 +358,10 @@ function SortableCard({ card, readOnly, commentSummary, onOpen, onEdit, onDuplic
           </span>
         )}
       </button>
+      </div>
 
       {!readOnly && (
         <div className="card-controls">
-          <button className="drag-handle" aria-label={`${card.title} 이동`} {...attributes} {...listeners}><GripVertical aria-hidden="true" /></button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild><button className="card-menu-button" aria-label={`${card.title} 메뉴`}><MoreHorizontal aria-hidden="true" /></button></DropdownMenuTrigger>
             <DropdownMenuContent align="end">
@@ -669,11 +671,19 @@ export function BoardApp() {
     const overCard = findCard(activeBoard, String(event.over.id));
     const targetColumnIndex = overCard ? overCard.columnIndex : activeBoard.columns.findIndex((column) => column.id === event.over?.id);
     if (targetColumnIndex < 0) return;
+    const sameColumn = source.columnIndex === targetColumnIndex;
+    // 자리가 그대로면 아무것도 하지 않습니다. 옮겼다는 안내만 뜨는 일을 막습니다.
+    if (sameColumn && overCard && overCard.index === source.index) return;
+    if (sameColumn && !overCard && source.index === activeBoard.columns[targetColumnIndex].cards.length - 1) return;
     updateActiveBoard((board) => {
       const columns = structuredClone(board.columns);
+      if (sameColumn && overCard) {
+        // 같은 칼럼 안에서는 끌면서 보이던 순서와 똑같이 맞춥니다.
+        columns[source.columnIndex].cards = arrayMove(columns[source.columnIndex].cards, source.index, overCard.index);
+        return { ...board, columns };
+      }
       const [moved] = columns[source.columnIndex].cards.splice(source.index, 1);
-      let insertIndex = overCard ? overCard.index : columns[targetColumnIndex].cards.length;
-      if (source.columnIndex === targetColumnIndex && source.index < insertIndex) insertIndex -= 1;
+      const insertIndex = overCard ? overCard.index : columns[targetColumnIndex].cards.length;
       columns[targetColumnIndex].cards.splice(Math.max(0, insertIndex), 0, moved);
       return { ...board, columns };
     });

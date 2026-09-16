@@ -146,7 +146,12 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .pdf-cover { height: 104px; display: flex; align-items: center; justify-content: center; gap: 7px; background: #faeeec; color: #b42318; }
 .pdf-cover svg { width: 25px; }
 .pdf-cover span { font-size: 13px; font-weight: 850; letter-spacing: .05em; }
+/* 카드 본문 줄: 왼쪽에 잡는 손잡이, 그 옆에 내용 */
+.card-row { display: flex; align-items: flex-start; }
 .card-main { width: 100%; display: block; padding: 13px 13px 14px; border: 0; background: transparent; text-align: left; cursor: pointer; }
+.card-row .card-main { min-width: 0; flex: 1; }
+.card-row .drag-handle { flex: none; margin: 12px 0 0 7px; }
+.card-row .drag-handle + .card-main { padding-left: 5px; }
 /* 카드 색. 편집 모달의 "카드 색"에서 고르며, 이름은 lib/board-types.ts의 CARD_TONES와 같습니다. */
 .card-tone-default { --tone-bg: #ffffff; --tone-edge: rgba(255,255,255,.95); }
 .card-tone-yellow { --tone-bg: #fff6c9; --tone-edge: #f3e3a1; }
@@ -159,7 +164,8 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .board-card[class*="card-tone-"] { background: var(--tone-bg); border-color: var(--tone-edge); }
 .board-card[class*="card-tone-"]:hover { border-color: var(--tone-edge); }
 .board-card[class*="card-tone-"] .card-type { background: rgba(255,255,255,.7); }
-.board-card[class*="card-tone-"] .drag-handle, .board-card[class*="card-tone-"] .card-menu-button { background: rgba(255,255,255,.75); }
+.board-card[class*="card-tone-"] .card-menu-button { background: rgba(255,255,255,.75); }
+.board-card[class*="card-tone-"] .drag-handle:hover { background: rgba(255,255,255,.75); }
 .tone-swatches { display: flex; flex-wrap: wrap; gap: 8px; }
 .tone-swatch { width: 30px; height: 30px; border: 1px solid var(--tone-edge); border-radius: 999px; background: var(--tone-bg); cursor: pointer; transition: transform 120ms ease, box-shadow 120ms ease; }
 .tone-swatch:hover { transform: scale(1.08); }
@@ -185,7 +191,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .comment-peek-head em { flex: none; padding: 0 5px; border-radius: 999px; background: var(--primary); color: white; font-size: 10px; font-style: normal; font-weight: 700; }
 .comment-peek-head i { flex: none; margin-left: auto; color: #7a868e; font-size: 11px; font-style: normal; }
 .comment-peek-body { display: -webkit-box; overflow: hidden; color: #4b5860; font-size: 12px; line-height: 1.5; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
-.card-heading { gap: 8px; padding-right: 52px; }
+.card-heading { gap: 8px; padding-right: 34px; }
 .card-heading strong { font-size: 14px; line-height: 1.4; letter-spacing: -.01em; }
 .card-type { width: 28px; height: 28px; display: grid; place-items: center; flex: 0 0 28px; border-radius: 8px; color: #41515c; background: #eef2f5; }
 .card-type svg { width: 14px; }
@@ -196,8 +202,11 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 
 .card-controls { position: absolute; top: 9px; right: 8px; gap: 1px; opacity: 0; transition: opacity 140ms ease; }
 .board-card:hover .card-controls, .board-card:focus-within .card-controls { opacity: 1; }
-.drag-handle, .card-menu-button { width: 27px; height: 28px; display: grid; place-items: center; border-radius: 7px; background: rgba(255,255,255,.92); color: #687680; }
-.drag-handle { cursor: grab; }
+.drag-handle, .card-menu-button { display: grid; place-items: center; border-radius: 7px; color: #687680; }
+.card-menu-button { width: 27px; height: 28px; background: rgba(255,255,255,.92); }
+/* 손잡이는 카드 앞쪽에 늘 보이게 둡니다. 여기를 잡고 끌면 카드가 움직입니다. */
+.drag-handle { width: 20px; height: 28px; background: transparent; color: #a6b0b8; cursor: grab; }
+.drag-handle:active { cursor: grabbing; }
 .drag-handle:hover, .card-menu-button:hover { background: #edf1f3; color: #27343d; }
 .drag-handle svg, .card-menu-button svg { width: 15px; }
 /* + 버튼은 제목 막대와 같은 색 계열의 연한 톤으로 맞춥니다. */

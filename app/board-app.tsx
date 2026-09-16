@@ -3,11 +3,17 @@
 import {
   closestCenter,
   DndContext,
+  DragOverlay,
   KeyboardSensor,
   PointerSensor,
+  pointerWithin,
+  rectIntersection,
   useSensor,
   useSensors,
+  type CollisionDetection,
   type DragEndEvent,
+  type DragOverEvent,
+  type DragStartEvent,
 } from "@dnd-kit/core";
 import {
   arrayMove,
@@ -48,6 +54,7 @@ import {
   LayoutGrid,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { createPortal } from "react-dom";
 import { formatDistanceToNow } from "date-fns";
 import { ko } from "date-fns/locale";
 import { toast } from "sonner";
@@ -235,6 +242,60 @@ function findCard(board: BoardData, id: string) {
   return null;
 }
 
+// 카드를 다른 자리로 옮긴 새 보드를 만듭니다. 원래 객체는 건드리지 않고 바뀐 칼럼만 새로 만듭니다.
+function moveCard(board: BoardData, cardId: string, toColumnId: string, toIndex: number): BoardData {
+  const source = findCard(board, cardId);
+  if (!source) return board;
+  const card = source.column.cards[source.index];
+  const columns = board.columns.map((column) => {
+    let cards = column.cards;
+    if (column.id === source.column.id) cards = cards.filter((item) => item.id !== cardId);
+    if (column.id === toColumnId) {
+      const next = [...cards];
+      next.splice(Math.max(0, Math.min(toIndex, next.length)), 0, card);
+      cards = next;
+    }
+    return cards === column.cards ? column : { ...column, cards };
+  });
+  return { ...board, columns };
+}
+
+// 카드 배치가 바뀌었는지 비교할 때 쓰는 문자열
+function orderSignature(board: BoardData) {
+  return board.columns.map((column) => `${column.id}:${column.cards.map((card) => card.id).join(",")}`).join("|");
+}
+
+// 드롭 대상 판정. 칼럼과 카드가 한꺼번에 "가장 가까운 중심"을 다투면 칼럼 중심이 카드 사이에 끼어들어
+// 아래로 내릴 때 자리를 잘못 잡습니다. 그래서 먼저 포인터가 든 칼럼을 고르고, 그 칼럼 안에서만 카드를 고릅니다.
+const boardCollision: CollisionDetection = (args) => {
+  const { active, droppableContainers, pointerCoordinates, collisionRect } = args;
+  const columns = droppableContainers.filter((container) => container.data.current?.type === "column");
+  if (active.data.current?.type === "column") return closestCenter({ ...args, droppableContainers: columns });
+
+  let columnHits = pointerCoordinates ? pointerWithin({ ...args, droppableContainers: columns }) : [];
+  if (!columnHits.length) columnHits = rectIntersection({ ...args, droppableContainers: columns });
+  if (!columnHits.length) return [];
+  const columnId = columnHits[0].id;
+  // 끌고 있는 카드의 빈자리도 후보에 넣습니다. 그 위에 있으면 "제자리"로 판정되어 순서가 흔들리지 않습니다.
+  const cards = droppableContainers.filter(
+    (container) => container.data.current?.type === "card" && container.data.current?.columnId === columnId,
+  );
+  if (!cards.length) return columnHits;
+
+  const y = pointerCoordinates?.y ?? collisionRect.top + collisionRect.height / 2;
+  const rects = cards.map((container) => ({ id: container.id, rect: container.rect.current })).filter((item) => item.rect);
+  if (!rects.length) return columnHits;
+  // 마지막 카드보다 아래를 가리키면 칼럼 자체를 돌려 맨 끝에 붙입니다.
+  const bottom = Math.max(...rects.map((item) => item.rect!.top + item.rect!.height));
+  if (y > bottom) return columnHits;
+  // 그 외에는 손가락(포인터) 높이에 가장 가까운 카드를 고릅니다.
+  const nearest = rects.reduce((best, item) => {
+    const distance = Math.abs(item.rect!.top + item.rect!.height / 2 - y);
+    return distance < best.distance ? { id: item.id, distance } : best;
+  }, { id: rects[0].id, distance: Number.POSITIVE_INFINITY });
+  return [{ id: nearest.id, data: { droppableContainer: cards.find((container) => container.id === nearest.id), value: nearest.distance } }];
+};
+
 function readLocalBoards(): BoardData[] {
   try {
     const stored = localStorage.getItem(LOCAL_KEY);
@@ -330,29 +391,10 @@ function CardPreview({ card }: { card: BoardCard }) {
   return null;
 }
 
-function SortableCard({ card, readOnly, commentSummary, onOpen, onEdit, onDuplicate, onDelete }: {
-  card: BoardCard;
-  readOnly: boolean;
-  commentSummary?: CommentSummary;
-  onOpen: () => void;
-  onEdit: () => void;
-  onDuplicate: () => void;
-  onDelete: () => void;
-}) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
-    id: card.id,
-    disabled: readOnly,
-    data: { type: "card" },
-  });
-  const tone = card.tone && card.tone !== "default" ? ` card-tone-${card.tone}` : "";
-
+// 카드 타일 안쪽 내용. 목록의 카드와 끌 때 따라다니는 복사본이 같은 모양을 쓰도록 분리했습니다.
+function CardInner({ card, commentSummary }: { card: BoardCard; commentSummary?: CommentSummary }) {
   return (
-    <article ref={setNodeRef} className={`board-card${tone}${isDragging ? " is-dragging" : ""}`} style={{ transform: CSS.Transform.toString(transform), transition }}>
-      <CardPreview card={card} />
-
-      <div className="card-row">
-      {!readOnly && <button className="drag-handle" aria-label={`${card.title} 이동`} {...attributes} {...listeners}><GripVertical aria-hidden="true" /></button>}
-      <button className="card-main" onClick={onOpen} aria-label={`${card.title} 크게 보기`}>
+    <>
         <span className="card-heading"><span className="card-type" aria-hidden="true">{typeIcon(card)}</span><strong>{card.title}</strong></span>
         {card.guestAuthor && <span className="guest-tag"><UserRound aria-hidden="true" />{card.guestAuthor}</span>}
         {card.body && <span className="card-body">{tileBody(card.body)}</span>}
@@ -372,7 +414,50 @@ function SortableCard({ card, readOnly, commentSummary, onOpen, onEdit, onDuplic
             <span className="comment-peek-body">{commentSummary.first.body}</span>
           </span>
         )}
-      </button>
+    </>
+  );
+}
+
+function cardToneClass(card: BoardCard) {
+  return card.tone && card.tone !== "default" ? ` card-tone-${card.tone}` : "";
+}
+
+// 끌고 있는 동안 포인터를 따라다니는 복사본. 칼럼의 스크롤 영역 밖으로도 나갈 수 있습니다.
+function CardOverlay({ card, commentSummary }: { card: BoardCard; commentSummary?: CommentSummary }) {
+  return (
+    <article className={`board-card drag-overlay-card${cardToneClass(card)}`}>
+      <CardPreview card={card} />
+      <div className="card-row">
+        <span className="drag-handle" aria-hidden="true"><GripVertical /></span>
+        <div className="card-main"><CardInner card={card} commentSummary={commentSummary} /></div>
+      </div>
+    </article>
+  );
+}
+
+function SortableCard({ card, columnId, readOnly, commentSummary, onOpen, onEdit, onDuplicate, onDelete }: {
+  card: BoardCard;
+  columnId: string;
+  readOnly: boolean;
+  commentSummary?: CommentSummary;
+  onOpen: () => void;
+  onEdit: () => void;
+  onDuplicate: () => void;
+  onDelete: () => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: card.id,
+    disabled: readOnly,
+    data: { type: "card", columnId },
+  });
+
+  return (
+    <article ref={setNodeRef} className={`board-card${cardToneClass(card)}${isDragging ? " is-dragging" : ""}`} style={{ transform: CSS.Transform.toString(transform), transition }}>
+      <CardPreview card={card} />
+
+      <div className="card-row">
+      {!readOnly && <button className="drag-handle" aria-label={`${card.title} 이동`} {...attributes} {...listeners}><GripVertical aria-hidden="true" /></button>}
+      <button className="card-main" onClick={onOpen} aria-label={`${card.title} 크게 보기`}><CardInner card={card} commentSummary={commentSummary} /></button>
       </div>
 
       {!readOnly && (
@@ -446,7 +531,7 @@ function SortableColumn({ column, readOnly, canAdd, queryText, commentSummaries,
           {canAdd && <button className="add-card-button" onClick={onAddCard} aria-label={`${column.title}에 카드 추가`} title="카드 추가"><Plus aria-hidden="true" /></button>}
           <SortableContext items={filteredCards.map((card) => card.id)} strategy={verticalListSortingStrategy}>
             <div className="card-list">
-              {filteredCards.map((card) => <SortableCard key={card.id} card={card} readOnly={readOnly} commentSummary={commentSummaries[card.id]} onOpen={() => onOpenCard(card)} onEdit={() => onEditCard(card)} onDuplicate={() => onDuplicateCard(card)} onDelete={() => onDeleteCard(card)} />)}
+              {filteredCards.map((card) => <SortableCard key={card.id} card={card} columnId={column.id} readOnly={readOnly} commentSummary={commentSummaries[card.id]} onOpen={() => onOpenCard(card)} onEdit={() => onEditCard(card)} onDuplicate={() => onDuplicateCard(card)} onDelete={() => onDeleteCard(card)} />)}
               {needle && filteredCards.length === 0 && <p className="column-empty">일치하는 카드가 없습니다.</p>}
               {!needle && filteredCards.length === 0 && <p className="column-empty">{canAdd ? "위의 + 를 눌러 첫 카드를 추가하세요." : "카드가 없습니다."}</p>}
             </div>
@@ -531,6 +616,9 @@ export function BoardApp() {
   const [newColumnTitle, setNewColumnTitle] = useState("");
   const [view, setView] = useState<"home" | "board">("home");
   const [viewerCardId, setViewerCardId] = useState<string | null>(null);
+  // 끌고 있는 카드와, 끌기 시작할 때의 보드(취소·실행 취소용)
+  const [dragCardId, setDragCardId] = useState<string | null>(null);
+  const dragSnapshot = useRef<BoardData | null>(null);
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const [comments, setComments] = useState<CardComment[]>([]);
   const [commentAuthor, setCommentAuthor] = useState("");
@@ -673,39 +761,89 @@ export function BoardApp() {
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }), useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }));
 
-  function handleDragEnd(event: DragEndEvent) {
-    if (!activeBoard || !event.over || event.active.id === event.over.id) return;
-    const previous = structuredClone(activeBoard);
-    if (event.active.data.current?.type === "column") {
-      const oldIndex = activeBoard.columns.findIndex((column) => column.id === event.active.id);
-      const newIndex = activeBoard.columns.findIndex((column) => column.id === event.over?.id);
-      if (oldIndex < 0 || newIndex < 0) return;
-      updateActiveBoard((board) => ({ ...board, columns: arrayMove(board.columns, oldIndex, newIndex) }));
-      pushUndo(previous, "칼럼을 이동했습니다.");
+  const dragCard = dragCardId && activeBoard ? findCard(activeBoard, dragCardId) : null;
+
+  function handleDragStart(event: DragStartEvent) {
+    const board = boardsRef.current.find((item) => item.id === activeBoardId) ?? null;
+    dragSnapshot.current = board;
+    if (event.active.data.current?.type === "card") setDragCardId(String(event.active.id));
+  }
+
+  // 끌고 있는 동안 다른 칼럼 위로 가면 그 자리에 미리 넣어 보여 줍니다. 저장은 놓을 때 한 번만 합니다.
+  function handleDragOver(event: DragOverEvent) {
+    const { active, over } = event;
+    if (!over || active.data.current?.type !== "card") return;
+    setBoards((current) => current.map((board) => {
+      if (board.id !== activeBoardId) return board;
+      const source = findCard(board, String(active.id));
+      if (!source) return board;
+      const overCard = findCard(board, String(over.id));
+      const targetColumn = overCard ? overCard.column : board.columns.find((column) => column.id === over.id);
+      if (!targetColumn || targetColumn.id === source.column.id) return board;
+      let toIndex = targetColumn.cards.length;
+      if (overCard) {
+        const translated = active.rect.current.translated;
+        const below = translated ? translated.top > over.rect.top + over.rect.height : false;
+        toIndex = overCard.index + (below ? 1 : 0);
+      }
+      return moveCard(board, source.column.cards[source.index].id, targetColumn.id, toIndex);
+    }));
+  }
+
+  function finishDrag(nextBoard: BoardData | null, message: string) {
+    const previous = dragSnapshot.current;
+    dragSnapshot.current = null;
+    setDragCardId(null);
+    if (!nextBoard || !previous) return;
+    if (orderSignature(nextBoard) === orderSignature(previous)) {
+      // 자리가 그대로면 끌기 전 상태로 되돌리기만 하고 저장하지 않습니다.
+      setBoards((current) => current.map((board) => board.id === previous.id ? previous : board));
       return;
     }
-    const source = findCard(activeBoard, String(event.active.id));
-    if (!source) return;
-    const overCard = findCard(activeBoard, String(event.over.id));
-    const targetColumnIndex = overCard ? overCard.columnIndex : activeBoard.columns.findIndex((column) => column.id === event.over?.id);
-    if (targetColumnIndex < 0) return;
-    const sameColumn = source.columnIndex === targetColumnIndex;
-    // 자리가 그대로면 아무것도 하지 않습니다. 옮겼다는 안내만 뜨는 일을 막습니다.
-    if (sameColumn && overCard && overCard.index === source.index) return;
-    if (sameColumn && !overCard && source.index === activeBoard.columns[targetColumnIndex].cards.length - 1) return;
-    updateActiveBoard((board) => {
-      const columns = structuredClone(board.columns);
-      if (sameColumn && overCard) {
-        // 같은 칼럼 안에서는 끌면서 보이던 순서와 똑같이 맞춥니다.
-        columns[source.columnIndex].cards = arrayMove(columns[source.columnIndex].cards, source.index, overCard.index);
-        return { ...board, columns };
-      }
-      const [moved] = columns[source.columnIndex].cards.splice(source.index, 1);
-      const insertIndex = overCard ? overCard.index : columns[targetColumnIndex].cards.length;
-      columns[targetColumnIndex].cards.splice(Math.max(0, insertIndex), 0, moved);
-      return { ...board, columns };
-    });
-    pushUndo(previous, "카드를 이동했습니다.");
+    updateBoard(nextBoard.id, () => nextBoard);
+    pushUndo(previous, message);
+  }
+
+  function handleDragCancel() {
+    const previous = dragSnapshot.current;
+    dragSnapshot.current = null;
+    setDragCardId(null);
+    if (previous) setBoards((current) => current.map((board) => board.id === previous.id ? previous : board));
+  }
+
+  function handleDragEnd(event: DragEndEvent) {
+    const board = boardsRef.current.find((item) => item.id === activeBoardId);
+    const previous = dragSnapshot.current;
+    if (!board || !previous) { handleDragCancel(); return; }
+    const { active, over } = event;
+
+    if (active.data.current?.type === "column") {
+      const oldIndex = board.columns.findIndex((column) => column.id === active.id);
+      const newIndex = over ? board.columns.findIndex((column) => column.id === over.id) : -1;
+      if (oldIndex < 0 || newIndex < 0 || oldIndex === newIndex) { handleDragCancel(); return; }
+      finishDrag({ ...board, columns: arrayMove(board.columns, oldIndex, newIndex) }, "칼럼을 이동했습니다.");
+      return;
+    }
+
+    // 놓을 자리가 없으면(보드 바깥 등) 끌기 전 상태로 되돌립니다.
+    if (!over) { handleDragCancel(); return; }
+    const source = findCard(board, String(active.id));
+    if (!source) { handleDragCancel(); return; }
+    const overCard = findCard(board, String(over.id));
+    const targetColumn = overCard ? overCard.column : board.columns.find((column) => column.id === over.id);
+    if (!targetColumn) { handleDragCancel(); return; }
+
+    let next = board;
+    if (overCard && overCard.column.id === source.column.id) {
+      if (overCard.index !== source.index) next = moveCard(board, String(active.id), targetColumn.id, overCard.index);
+    } else if (overCard) {
+      const translated = active.rect.current.translated;
+      const below = translated ? translated.top > over.rect.top + over.rect.height : false;
+      next = moveCard(board, String(active.id), targetColumn.id, overCard.index + (below ? 1 : 0));
+    } else if (targetColumn.id !== source.column.id || source.index !== targetColumn.cards.length - 1) {
+      next = moveCard(board, String(active.id), targetColumn.id, targetColumn.cards.length);
+    }
+    finishDrag(next, "카드를 이동했습니다.");
   }
 
   function openNewCard(columnId?: string) {
@@ -982,7 +1120,7 @@ export function BoardApp() {
 
       <div className="board-area">
       <div className="board-heading"><div><span className="board-kicker">{readOnly ? "공유 보드" : "내 보드"} · 칼럼 {activeBoard.columns.length} · 카드 {activeBoard.columns.reduce((sum, column) => sum + column.cards.length, 0)}</span><h1>{activeBoard.title}</h1></div></div>
-      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+      <DndContext sensors={sensors} collisionDetection={boardCollision} onDragStart={handleDragStart} onDragOver={handleDragOver} onDragEnd={handleDragEnd} onDragCancel={handleDragCancel}>
         <SortableContext items={activeBoard.columns.map((column) => column.id)}>
           <section className="board" aria-label={`${activeBoard.title} 보드`}>
             {activeBoard.columns.map((column) => <SortableColumn key={column.id} column={column} readOnly={readOnly} canAdd={!readOnly || guestPosting} queryText={queryText} commentSummaries={commentSummaries} onAddCard={() => openNewCard(column.id)} onOpenCard={openViewer} onEditCard={(card) => openCard(column.id, card)} onRename={() => {
@@ -992,6 +1130,12 @@ export function BoardApp() {
             {!readOnly && (addingColumn ? <form className="new-column-form" onSubmit={(event) => { event.preventDefault(); addColumn(); }}><input autoFocus value={newColumnTitle} onChange={(event) => setNewColumnTitle(event.target.value)} placeholder="칼럼 이름" /><div><button className="primary-button" type="submit">추가</button><button className="secondary-button" type="button" onClick={() => setAddingColumn(false)}>취소</button></div></form> : <button className="add-column-button" onClick={() => setAddingColumn(true)}><Plus aria-hidden="true" />칼럼 추가</button>)}
           </section>
         </SortableContext>
+        {createPortal(
+          <DragOverlay dropAnimation={{ duration: 180, easing: "cubic-bezier(.2, .8, .2, 1)" }} zIndex={80}>
+            {dragCard && <CardOverlay card={dragCard.column.cards[dragCard.index]} commentSummary={commentSummaries[dragCard.column.cards[dragCard.index].id]} />}
+          </DragOverlay>,
+          document.body,
+        )}
       </DndContext>
       </div>
       {(!readOnly || guestPosting) && <button className="primary-button fab" onClick={() => openNewCard(activeBoard.columns[0]?.id)} disabled={!activeBoard.columns.length}><Plus aria-hidden="true" />카드 추가</button>}

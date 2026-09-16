@@ -115,7 +115,15 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .column { --column-hue: 222; width: 306px; flex: 0 0 306px; max-height: calc(100vh - 176px); display: flex; flex-direction: column; padding: 0; }
 .demo-banner + div .column { max-height: calc(100vh - 214px); }
 .column.is-collapsed { width: 210px; flex-basis: 210px; }
-.column.is-dragging, .board-card.is-dragging { opacity: .55; z-index: 50; box-shadow: 0 16px 40px rgba(20,30,38,.16); }
+.column.is-dragging { opacity: .55; z-index: 50; box-shadow: 0 16px 40px rgba(20,30,38,.16); }
+/* 끌고 있는 카드의 원래 자리. 복사본이 포인터를 따라다니므로 여기는 흐릿한 자리표시로 남깁니다. */
+.board-card.is-dragging { opacity: .3; box-shadow: none; }
+.board-card.is-dragging:hover { transform: none; }
+/* 포인터를 따라다니는 복사본 */
+.drag-overlay-card { cursor: grabbing; border-color: white; box-shadow: 0 22px 48px rgba(20,30,38,.28), 0 0 0 1px rgba(21,94,239,.18); transform: rotate(1.2deg) scale(1.02); transition: none; }
+.drag-overlay-card:hover { transform: rotate(1.2deg) scale(1.02); }
+.drag-overlay-card .card-main, .drag-overlay-card .drag-handle { cursor: grabbing; }
+.drag-overlay-card .drag-handle { color: var(--primary); }
 /* 칼럼 제목 막대는 칼럼마다 배정된 색조로 진하게 칠해 흰 카드들과 구분합니다. */
 .column-header { min-height: 46px; gap: 2px; padding: 6px 6px 6px 8px; border-radius: 13px; color: white; background: linear-gradient(135deg, hsl(var(--column-hue) 52% 44%), hsl(var(--column-hue) 48% 36%)); box-shadow: 0 6px 16px hsl(var(--column-hue) 50% 40% / .28); }
 .column-handle, .drag-handle { touch-action: none; }

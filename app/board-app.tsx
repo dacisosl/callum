@@ -190,6 +190,9 @@ function formatDate(value: number) {
   return new Date(value).toLocaleDateString("ko-KR", { year: "numeric", month: "long", day: "numeric" });
 }
 
+// 카드 타일에 쓰는 댓글 요약. first는 가장 먼저 달린 댓글입니다.
+type CommentSummary = { count: number; first: CardComment };
+
 function columnHue(column: BoardColumn, index: number) {
   return column.hue ?? COLUMN_HUES[index % COLUMN_HUES.length].value;
 }
@@ -314,10 +317,10 @@ function CardPreview({ card }: { card: BoardCard }) {
   return null;
 }
 
-function SortableCard({ card, readOnly, commentCount, onOpen, onEdit, onDuplicate, onDelete }: {
+function SortableCard({ card, readOnly, commentSummary, onOpen, onEdit, onDuplicate, onDelete }: {
   card: BoardCard;
   readOnly: boolean;
-  commentCount: number;
+  commentSummary?: CommentSummary;
   onOpen: () => void;
   onEdit: () => void;
   onDuplicate: () => void;
@@ -340,8 +343,19 @@ function SortableCard({ card, readOnly, commentCount, onOpen, onEdit, onDuplicat
         <span className="card-meta">
           {card.link && <span className="link-source">{linkLabel(card.link)}<ExternalLink aria-hidden="true" /></span>}
           {card.attachments.length > 0 && <span className="attachment-count">첨부 {card.attachments.length}개</span>}
-          {commentCount > 0 && <span className="comment-count"><MessageCircle aria-hidden="true" />{commentCount}</span>}
+          {commentSummary && <span className="comment-count"><MessageCircle aria-hidden="true" />{commentSummary.count}</span>}
         </span>
+        {commentSummary && (
+          <span className="comment-peek">
+            <span className="comment-peek-head">
+              <MessageCircle aria-hidden="true" />
+              <b>{commentSummary.first.author || "익명"}</b>
+              {commentSummary.first.byOwner && <em>작성자</em>}
+              {commentSummary.count > 1 && <i>외 {commentSummary.count - 1}개</i>}
+            </span>
+            <span className="comment-peek-body">{commentSummary.first.body}</span>
+          </span>
+        )}
       </button>
 
       {!readOnly && (
@@ -363,12 +377,12 @@ function SortableCard({ card, readOnly, commentCount, onOpen, onEdit, onDuplicat
   );
 }
 
-function SortableColumn({ column, index, readOnly, queryText, commentCounts, onAddCard, onOpenCard, onEditCard, onRename, onRecolor, onDelete, onToggle, onDuplicateCard, onDeleteCard }: {
+function SortableColumn({ column, index, readOnly, queryText, commentSummaries, onAddCard, onOpenCard, onEditCard, onRename, onRecolor, onDelete, onToggle, onDuplicateCard, onDeleteCard }: {
   column: BoardColumn;
   index: number;
   readOnly: boolean;
   queryText: string;
-  commentCounts: Record<string, number>;
+  commentSummaries: Record<string, CommentSummary>;
   onAddCard: () => void;
   onOpenCard: (card: BoardCard) => void;
   onEditCard: (card: BoardCard) => void;
@@ -416,7 +430,7 @@ function SortableColumn({ column, index, readOnly, queryText, commentCounts, onA
           {!readOnly && <button className="add-card-button" onClick={onAddCard} aria-label={`${column.title}에 카드 추가`} title="카드 추가"><Plus aria-hidden="true" /></button>}
           <SortableContext items={filteredCards.map((card) => card.id)} strategy={verticalListSortingStrategy}>
             <div className="card-list">
-              {filteredCards.map((card) => <SortableCard key={card.id} card={card} readOnly={readOnly} commentCount={commentCounts[card.id] ?? 0} onOpen={() => onOpenCard(card)} onEdit={() => onEditCard(card)} onDuplicate={() => onDuplicateCard(card)} onDelete={() => onDeleteCard(card)} />)}
+              {filteredCards.map((card) => <SortableCard key={card.id} card={card} readOnly={readOnly} commentSummary={commentSummaries[card.id]} onOpen={() => onOpenCard(card)} onEdit={() => onEditCard(card)} onDuplicate={() => onDuplicateCard(card)} onDelete={() => onDeleteCard(card)} />)}
               {needle && filteredCards.length === 0 && <p className="column-empty">일치하는 카드가 없습니다.</p>}
               {!needle && filteredCards.length === 0 && <p className="column-empty">{readOnly ? "카드가 없습니다." : "위의 + 를 눌러 첫 카드를 추가하세요."}</p>}
             </div>
@@ -513,10 +527,14 @@ export function BoardApp() {
   const viewerTarget = viewerCardId && activeBoard ? findCard(activeBoard, viewerCardId) : null;
   const viewerCard = viewerTarget ? viewerTarget.column.cards[viewerTarget.index] : null;
   const viewerVideo = getVideoEmbed(viewerCard?.link?.url);
-  const commentCounts = useMemo(() => {
-    const counts: Record<string, number> = {};
-    for (const comment of comments) counts[comment.cardId] = (counts[comment.cardId] ?? 0) + 1;
-    return counts;
+  const commentSummaries = useMemo(() => {
+    const summaries: Record<string, CommentSummary> = {};
+    for (const comment of comments) {
+      const current = summaries[comment.cardId];
+      if (!current) summaries[comment.cardId] = { count: 1, first: comment };
+      else summaries[comment.cardId] = { count: current.count + 1, first: comment.createdAt < current.first.createdAt ? comment : current.first };
+    }
+    return summaries;
   }, [comments]);
   // 변경 표시와 저장 상태를 한 곳에서 바꿉니다. 저장 effect는 이 값만 보고 동작합니다.
   const markDirty = useCallback((boardId: string) => { setDirtyBoardId(boardId); setSaveStatus("saving"); }, []);
@@ -899,7 +917,7 @@ export function BoardApp() {
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
         <SortableContext items={activeBoard.columns.map((column) => column.id)}>
           <section className="board" aria-label={`${activeBoard.title} 보드`}>
-            {activeBoard.columns.map((column, index) => <SortableColumn key={column.id} column={column} index={index} readOnly={readOnly} queryText={queryText} commentCounts={commentCounts} onAddCard={() => openNewCard(column.id)} onOpenCard={openViewer} onEditCard={(card) => openCard(column.id, card)} onRename={() => {
+            {activeBoard.columns.map((column, index) => <SortableColumn key={column.id} column={column} index={index} readOnly={readOnly} queryText={queryText} commentSummaries={commentSummaries} onAddCard={() => openNewCard(column.id)} onOpenCard={openViewer} onEditCard={(card) => openCard(column.id, card)} onRename={() => {
               const title = window.prompt("새 칼럼 이름", column.title)?.trim();
               if (title) updateActiveBoard((board) => ({ ...board, columns: board.columns.map((item) => item.id === column.id ? { ...item, title } : item) }));
             }} onRecolor={(hue) => updateActiveBoard((board) => ({ ...board, columns: board.columns.map((item) => item.id === column.id ? { ...item, hue } : item) }))} onDelete={() => setDeleteTarget({ kind: "column", id: column.id, title: column.title })} onToggle={() => updateActiveBoard((board) => ({ ...board, columns: board.columns.map((item) => item.id === column.id ? { ...item, collapsed: !item.collapsed } : item) }))} onDuplicateCard={(card) => duplicateCard(column.id, card)} onDeleteCard={(card) => setDeleteTarget({ kind: "card", id: card.id, columnId: column.id, title: card.title })} />)}

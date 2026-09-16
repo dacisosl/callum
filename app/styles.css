@@ -176,6 +176,15 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .card-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
 .comment-count { display: inline-flex; align-items: center; gap: 4px; margin-top: 10px; color: #6b7881; font-size: 12px; font-weight: 650; }
 .comment-count svg { width: 13px; }
+/* 카드 타일 맨 아래에 보이는 첫 댓글 미리보기 */
+.comment-peek { display: grid; gap: 3px; margin-top: 10px; padding: 8px 10px; border-radius: 10px; background: rgba(20,30,38,.05); }
+.board-card[class*="card-tone-"] .comment-peek { background: rgba(255,255,255,.55); }
+.comment-peek-head { display: flex; align-items: center; gap: 5px; color: #5f6c76; font-size: 11px; }
+.comment-peek-head svg { width: 12px; flex: 0 0 12px; }
+.comment-peek-head b { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #3c4a54; font-weight: 750; }
+.comment-peek-head em { flex: none; padding: 0 5px; border-radius: 999px; background: var(--primary); color: white; font-size: 10px; font-style: normal; font-weight: 700; }
+.comment-peek-head i { flex: none; margin-left: auto; color: #7a868e; font-size: 11px; font-style: normal; }
+.comment-peek-body { display: -webkit-box; overflow: hidden; color: #4b5860; font-size: 12px; line-height: 1.5; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .card-heading { gap: 8px; padding-right: 52px; }
 .card-heading strong { font-size: 14px; line-height: 1.4; letter-spacing: -.01em; }
 .card-type { width: 28px; height: 28px; display: grid; place-items: center; flex: 0 0 28px; border-radius: 8px; color: #41515c; background: #eef2f5; }

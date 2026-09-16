@@ -79,6 +79,39 @@ create policy "attachments owner delete" on storage.objects
   for delete to authenticated
   using (bucket_id = 'attachments' and (storage.foldername(name))[1] = auth.uid()::text);
 
+-- 공유받은 사람의 첨부: guest/{보드ID}/... 경로에만, 그 보드가 공유 중이고 글쓰기가 켜져 있을 때만 올릴 수 있습니다.
+-- 파일 크기·형식 제한은 버킷 설정이 맡습니다. 주인은 자기 보드의 손님 파일을 읽고 지울 수 있습니다.
+drop policy if exists "attachments guest insert" on storage.objects;
+drop policy if exists "attachments guest files owner select" on storage.objects;
+drop policy if exists "attachments guest files owner delete" on storage.objects;
+
+create policy "attachments guest insert" on storage.objects
+  for insert to anon, authenticated
+  with check (
+    bucket_id = 'attachments'
+    and (storage.foldername(name))[1] = 'guest'
+    and exists (
+      select 1 from public.boards b
+      where b.id = (storage.foldername(name))[2]
+        and b.share_enabled = true
+        and coalesce((b.data ->> 'guestPostEnabled')::boolean, false)
+    )
+  );
+create policy "attachments guest files owner select" on storage.objects
+  for select to authenticated
+  using (
+    bucket_id = 'attachments'
+    and (storage.foldername(name))[1] = 'guest'
+    and exists (select 1 from public.boards b where b.id = (storage.foldername(name))[2] and b.owner_id = auth.uid())
+  );
+create policy "attachments guest files owner delete" on storage.objects
+  for delete to authenticated
+  using (
+    bucket_id = 'attachments'
+    and (storage.foldername(name))[1] = 'guest'
+    and exists (select 1 from public.boards b where b.id = (storage.foldername(name))[2] and b.owner_id = auth.uid())
+  );
+
 -- 5. 카드 댓글: 보드 주인은 RLS로 직접 읽고 쓰고 지우며, 공유 링크를 받은 사람은
 --    아래 함수 두 개로만 읽고 씁니다. 보드의 data->>'commentsEnabled' 가 true 일 때만 동작합니다.
 create table if not exists public.card_comments (
@@ -217,6 +250,9 @@ grant execute on function public.add_shared_comment(text, text, text, text, text
 
 -- 6. 공유받은 사람의 카드 작성: 보드의 data->>'guestPostEnabled' 가 true 일 때만 동작합니다.
 --    주인의 보드 데이터(jsonb) 안에 카드를 직접 덧붙이므로 주인이 보는 화면과 같은 카드가 됩니다.
+-- 매개변수가 바뀌었으므로 예전 시그니처를 지우고 다시 만듭니다(그냥 만들면 오버로드가 남아 호출이 모호해집니다).
+drop function if exists public.add_shared_card(text, text, text, text, text, jsonb, text);
+
 create or replace function public.add_shared_card(
   token text,
   card_id text,
@@ -224,7 +260,8 @@ create or replace function public.add_shared_card(
   card_title text,
   card_body text,
   card_link jsonb,
-  author text
+  author text,
+  card_attachments jsonb default '[]'::jsonb
 )
 returns jsonb
 language plpgsql
@@ -235,6 +272,8 @@ declare
   target public.boards%rowtype;
   new_card jsonb;
   card_total int;
+  attachment jsonb;
+  clean_attachments jsonb := '[]'::jsonb;
   now_ms bigint := (extract(epoch from now()) * 1000)::bigint;
 begin
   select * into target
@@ -273,6 +312,32 @@ begin
   ) then
     raise exception '이미 올린 카드입니다.';
   end if;
+  -- 첨부는 우리 저장소의 guest/{이 보드}/ 경로에 올라간 이미지·PDF 만, 최대 10개까지 받습니다.
+  if card_attachments is not null and jsonb_typeof(card_attachments) = 'array' then
+    if jsonb_array_length(card_attachments) > 10 then
+      raise exception '첨부는 카드당 10개까지 올릴 수 있습니다.';
+    end if;
+    for attachment in select * from jsonb_array_elements(card_attachments) loop
+      if jsonb_typeof(attachment) <> 'object'
+         or coalesce(attachment ->> 'kind', '') not in ('image', 'pdf')
+         or coalesce(attachment ->> 'storagePath', '') not like ('guest/' || target.id || '/%')
+         or coalesce(attachment ->> 'url', '') not like ('%/storage/v1/object/public/attachments/guest/' || target.id || '/%')
+         or coalesce((attachment ->> 'size')::bigint, 0) < 0
+         or coalesce((attachment ->> 'size')::bigint, 0) > 31457280 then
+        raise exception '첨부 정보가 올바르지 않습니다.';
+      end if;
+      clean_attachments := clean_attachments || jsonb_build_object(
+        'id', left(coalesce(attachment ->> 'id', 'file-' || gen_random_uuid()::text), 80),
+        'name', left(coalesce(attachment ->> 'name', '첨부'), 200),
+        'kind', attachment ->> 'kind',
+        'mimeType', left(coalesce(attachment ->> 'mimeType', ''), 100),
+        'size', coalesce((attachment ->> 'size')::bigint, 0),
+        'url', attachment ->> 'url',
+        'storagePath', attachment ->> 'storagePath'
+      );
+    end loop;
+  end if;
+
   -- 공개 쓰기 경로이므로 보드 하나가 무한히 커지지 않도록 상한을 둡니다.
   select count(*) into card_total
   from jsonb_array_elements(coalesce(target.data -> 'columns', '[]'::jsonb)) col,
@@ -285,7 +350,7 @@ begin
     'id', card_id,
     'title', left(btrim(card_title), 120),
     'body', left(btrim(coalesce(card_body, '')), 3000),
-    'attachments', '[]'::jsonb,
+    'attachments', clean_attachments,
     'link', card_link,
     'guestAuthor', left(coalesce(nullif(btrim(author), ''), '익명'), 40),
     'createdAt', now_ms,
@@ -316,4 +381,4 @@ begin
 end;
 $$;
 
-grant execute on function public.add_shared_card(text, text, text, text, text, jsonb, text) to anon, authenticated;
+grant execute on function public.add_shared_card(text, text, text, text, text, jsonb, text, jsonb) to anon, authenticated;

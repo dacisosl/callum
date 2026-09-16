@@ -23,6 +23,9 @@ const messages: Record<string, string> = {
   "Invalid login credentials": "이메일 또는 비밀번호가 올바르지 않습니다.",
   "Email not confirmed": "이메일 인증이 필요합니다. 받은 메일의 링크를 눌러 주세요.",
   "Email rate limit exceeded": "잠시 후 다시 시도해 주세요.",
+  // 저장소 정책에 막힌 업로드(공유가 꺼졌거나 글쓰기 허용이 꺼진 보드)
+  "new row violates row-level security policy": "이 보드에는 파일을 올릴 수 없습니다. 공유나 글쓰기 허용이 꺼져 있을 수 있습니다.",
+  "The object exceeded the maximum allowed size": "파일이 너무 큽니다. 30MB 이하만 올릴 수 있습니다.",
 };
 
 function translate(error: { message: string }): Error {
@@ -99,26 +102,48 @@ export async function removeBoard(board: BoardData, ownerId: string) {
   if (error) throw translate(error);
 }
 
-export async function uploadAttachment(
-  file: File,
-  ownerId: string,
-  boardId: string,
-  attachmentId: string,
-): Promise<Attachment> {
-  // Storage 객체 키는 영문·숫자·일부 기호만 허용됩니다. 한글 등이 들어가면 업로드가
-  // 거부되므로 키는 ASCII로만 만들고, 원래 파일 이름은 name 필드에 그대로 보존합니다.
+// Storage 객체 키는 영문·숫자·일부 기호만 허용됩니다. 한글 등이 들어가면 업로드가
+// 거부되므로 키는 ASCII로만 만들고, 원래 파일 이름은 name 필드에 그대로 보존합니다.
+function safeFileKey(file: File, attachmentId: string) {
   const dot = file.name.lastIndexOf(".");
   const ext = dot > 0 ? file.name.slice(dot).toLowerCase().replace(/[^a-z0-9.]/g, "") : "";
   const stem = (dot > 0 ? file.name.slice(0, dot) : file.name)
     .replace(/[^a-zA-Z0-9._-]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 60) || "file";
-  const storagePath = `${ownerId}/${boardId}/${attachmentId}-${stem}${ext}`;
+  return `${attachmentId}-${stem}${ext}`;
+}
+
+export async function uploadAttachment(
+  file: File,
+  ownerId: string,
+  boardId: string,
+  attachmentId: string,
+): Promise<Attachment> {
+  const storagePath = `${ownerId}/${boardId}/${safeFileKey(file, attachmentId)}`;
   const storage = supabase().storage.from(BUCKET);
   const { error } = await storage.upload(storagePath, file, {
     contentType: file.type,
     upsert: false,
   });
+  if (error) throw translate(error);
+  return {
+    id: attachmentId,
+    name: file.name,
+    kind: file.type === "application/pdf" ? "pdf" : "image",
+    mimeType: file.type,
+    size: file.size,
+    url: storage.getPublicUrl(storagePath).data.publicUrl,
+    storagePath,
+  };
+}
+
+// 공유 링크로 들어온 사람의 첨부. guest/{보드ID}/ 경로에 올리며, 저장소 정책이
+// 그 보드가 공유 중이고 글쓰기가 켜져 있는지 확인합니다.
+export async function uploadGuestAttachment(file: File, boardId: string, attachmentId: string): Promise<Attachment> {
+  const storagePath = `guest/${boardId}/${safeFileKey(file, attachmentId)}`;
+  const storage = supabase().storage.from(BUCKET);
+  const { error } = await storage.upload(storagePath, file, { contentType: file.type, upsert: false });
   if (error) throw translate(error);
   return {
     id: attachmentId,
@@ -214,7 +239,7 @@ export async function removeComment(commentId: string) {
 // 공유 링크로 들어온 사람이 카드를 올립니다. 보드의 글쓰기 허용이 켜져 있을 때만 통과합니다.
 export async function addSharedCard(
   token: string,
-  card: { id: string; columnId: string; title: string; body: string; link?: LinkPreviewData; author: string },
+  card: { id: string; columnId: string; title: string; body: string; link?: LinkPreviewData; author: string; attachments: Attachment[] },
 ): Promise<BoardCard> {
   const { data, error } = await supabase().rpc("add_shared_card", {
     token,
@@ -224,6 +249,7 @@ export async function addSharedCard(
     card_body: card.body,
     card_link: card.link ?? null,
     author: card.author,
+    card_attachments: card.attachments,
   });
   if (error) throw translate(error);
   return data as BoardCard;

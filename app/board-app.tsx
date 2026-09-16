@@ -1045,7 +1045,7 @@ export function BoardApp() {
   async function saveGuestCard(link: LinkPreviewData | undefined) {
     if (!draft || !activeBoard || !sharedToken) return;
     const author = commentAuthor.trim().slice(0, 40) || "익명";
-    const card = { id: makeId("card"), columnId: draft.columnId, title: draft.title.trim(), body: draft.body.trim(), link, author };
+    const card = { id: makeId("card"), columnId: draft.columnId, title: draft.title.trim(), body: draft.body.trim(), link, author, attachments: draft.attachments };
     setUploading(true);
     try {
       let saved: BoardCard;
@@ -1053,7 +1053,7 @@ export function BoardApp() {
         saved = await (await import("@/lib/supabase-client")).addSharedCard(sharedToken, card);
       } else {
         const now = nowMs();
-        saved = { id: card.id, title: card.title, body: card.body, attachments: [], link: card.link, guestAuthor: author, createdAt: now, updatedAt: now };
+        saved = { id: card.id, title: card.title, body: card.body, attachments: card.attachments, link: card.link, guestAuthor: author, createdAt: now, updatedAt: now };
         const stored = readLocalBoards().map((board) => board.id === activeBoard.id
           ? { ...board, columns: board.columns.map((column) => column.id === card.columnId ? { ...column, cards: [saved, ...column.cards] } : column) }
           : board);
@@ -1108,7 +1108,8 @@ export function BoardApp() {
       const uploaded: Attachment[] = [];
       for (const file of accepted) {
         const id = makeId("file");
-        if (supabaseConfigured && user) uploaded.push(await (await import("@/lib/supabase-client")).uploadAttachment(file, user.uid, activeBoard.id, id));
+        if (supabaseConfigured && guestPosting && sharedToken) uploaded.push(await (await import("@/lib/supabase-client")).uploadGuestAttachment(file, activeBoard.id, id));
+        else if (supabaseConfigured && user) uploaded.push(await (await import("@/lib/supabase-client")).uploadAttachment(file, user.uid, activeBoard.id, id));
         else uploaded.push({ id, name: file.name, kind: file.type === "application/pdf" ? "pdf" : "image", mimeType: file.type, size: file.size, url: await fileToDataUrl(file) });
       }
       setDraft((current) => current ? { ...current, attachments: [...current.attachments, ...uploaded] } : current);
@@ -1390,7 +1391,7 @@ export function BoardApp() {
           const pasted = filesFromClipboard(event.clipboardData);
           if (pasted.length) {
             event.preventDefault();
-            if (readOnly) { toast.error(guestPosting ? "공유 링크로 들어온 경우에는 파일을 첨부할 수 없습니다." : "읽기 전용 보드입니다."); return; }
+            if (readOnly && !guestPosting) { toast.error("읽기 전용 보드입니다."); return; }
             void addFiles(pasted).then((count) => { if (count > 0) toast.success(count === 1 ? "클립보드의 이미지를 첨부했습니다." : `클립보드의 파일 ${count}개를 첨부했습니다.`); });
             return;
           }
@@ -1400,16 +1401,16 @@ export function BoardApp() {
           const text = event.clipboardData.getData("text").trim();
           if (/^https?:\/\//i.test(text) && !linkInput) setLinkInput(firstUrl(text));
         }}>
-          <DialogHeader><DialogTitle>{draft?.id ? "카드 수정" : "새 카드"}</DialogTitle><DialogDescription>{guestPosting ? "이 보드에 카드를 올립니다. 글과 링크를 담을 수 있습니다." : "글, 링크, 이미지, PDF를 한 카드에 담을 수 있습니다."}</DialogDescription></DialogHeader>
+          <DialogHeader><DialogTitle>{draft?.id ? "카드 수정" : "새 카드"}</DialogTitle><DialogDescription>{guestPosting ? "이 보드에 카드를 올립니다. 글, 링크, 이미지, PDF를 담을 수 있습니다." : "글, 링크, 이미지, PDF를 한 카드에 담을 수 있습니다."}</DialogDescription></DialogHeader>
           {draft && <div className="editor-body">
             {guestPosting && <label>이름<input value={commentAuthor} maxLength={40} onChange={(event) => setCommentAuthor(event.target.value)} placeholder="비워 두면 익명" /></label>}
             <label>제목<input value={draft.title} readOnly={readOnly && !guestPosting} maxLength={120} onChange={(event) => setDraft({ ...draft, title: event.target.value })} placeholder="무엇을 모아둘까요?" /></label>
             <label>내용<textarea value={draft.body} readOnly={readOnly && !guestPosting} maxLength={3000} onChange={(event) => setDraft({ ...draft, body: event.target.value })} placeholder="메모를 입력하세요" /></label>
             {!readOnly && <section><div className="section-label"><Palette />카드 색</div><div className="tone-swatches" role="radiogroup" aria-label="카드 색">{CARD_TONES.map((tone) => <button key={tone.value} type="button" role="radio" aria-checked={(draft.tone ?? "default") === tone.value} className={`tone-swatch card-tone-${tone.value}${(draft.tone ?? "default") === tone.value ? " is-active" : ""}`} onClick={() => setDraft({ ...draft, tone: tone.value })} title={tone.label} aria-label={tone.label} />)}</div></section>}
             <section className="link-editor"><div className="section-label"><Link2 />링크</div>{(!readOnly || guestPosting) && <div className="link-input-row"><input value={linkInput} onChange={(event) => { const value = event.target.value; setLinkInput(value); if (!value.trim()) setDraft((current) => current ? { ...current, link: undefined } : current); }} placeholder="https://..." /><button className="secondary-button" onClick={() => void fetchLinkPreview()} disabled={linkLoading}>{linkLoading && <LoaderCircle className="spin" />}미리보기</button></div>}{draft.link && <a className="link-preview" href={draft.link.url} target="_blank" rel="noreferrer"><LinkRowImage key={`${draft.link.url}|${draft.link.image ?? ""}`} link={draft.link} /><span><small>{getVideoEmbed(draft.link.url) ? "동영상 · 카드에서 바로 재생" : linkLabel(draft.link)}</small><strong>{draft.link.title}</strong><em>{draft.link.description}</em></span><ExternalLink /></a>}{draft.link && (!readOnly || guestPosting) && <button type="button" className="text-button link-remove" onClick={removeDraftLink}><X />링크 제거</button>}</section>
-            {!guestPosting && <section><div className="section-label"><UploadCloud />첨부</div>{!readOnly && <button className="drop-zone" type="button" onClick={() => fileInputRef.current?.click()} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); void addFiles(event.dataTransfer.files); }}>{uploading ? <LoaderCircle className="spin" /> : <UploadCloud />}<span>이미지 또는 PDF를 선택하거나 끌어 놓으세요. 복사한 이미지는 Ctrl+V로 붙여넣어도 됩니다.</span><small>{supabaseConfigured ? "파일당 최대 30MB" : "데모 모드 파일당 최대 2MB"} · 동영상 제외</small><input ref={fileInputRef} hidden type="file" multiple accept="image/*,application/pdf" onChange={(event) => event.target.files && void addFiles(event.target.files)} /></button>}
-              {!guestPosting && draft.attachments.length > 0 && <div className="attachment-grid">{draft.attachments.map((attachment) => <article className="attachment-item" key={attachment.id}>{attachment.kind === "image" ? <img src={attachment.url} alt={attachment.name} /> : <iframe title={attachment.name} src={`${attachment.url}#page=1&toolbar=0&navpanes=0`} />}<div><strong>{attachment.name}</strong><span>{attachment.kind === "pdf" ? "PDF" : "이미지"} · {formatBytes(attachment.size)}</span></div><a href={attachment.url} target="_blank" rel="noreferrer" aria-label={`${attachment.name} 열기`}><ExternalLink /></a>{!readOnly && <button onClick={() => deleteDraftAttachment(attachment)} aria-label={`${attachment.name} 삭제`}><X /></button>}</article>)}</div>}
-            </section>}
+            <section><div className="section-label"><UploadCloud />첨부</div>{(!readOnly || guestPosting) && <button className="drop-zone" type="button" onClick={() => fileInputRef.current?.click()} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); void addFiles(event.dataTransfer.files); }}>{uploading ? <LoaderCircle className="spin" /> : <UploadCloud />}<span>이미지 또는 PDF를 선택하거나 끌어 놓으세요. 복사한 이미지는 Ctrl+V로 붙여넣어도 됩니다.</span><small>{supabaseConfigured ? "파일당 최대 30MB" : "데모 모드 파일당 최대 2MB"} · 동영상 제외</small><input ref={fileInputRef} hidden type="file" multiple accept="image/*,application/pdf" onChange={(event) => event.target.files && void addFiles(event.target.files)} /></button>}
+              {draft.attachments.length > 0 && <div className="attachment-grid">{draft.attachments.map((attachment) => <article className="attachment-item" key={attachment.id}>{attachment.kind === "image" ? <img src={attachment.url} alt={attachment.name} /> : <iframe title={attachment.name} src={`${attachment.url}#page=1&toolbar=0&navpanes=0`} />}<div><strong>{attachment.name}</strong><span>{attachment.kind === "pdf" ? "PDF" : "이미지"} · {formatBytes(attachment.size)}</span></div><a href={attachment.url} target="_blank" rel="noreferrer" aria-label={`${attachment.name} 열기`}><ExternalLink /></a>{(!readOnly || guestPosting) && <button onClick={() => deleteDraftAttachment(attachment)} aria-label={`${attachment.name} 삭제`}><X /></button>}</article>)}</div>}
+            </section>
           </div>}
           <DialogFooter><button className="secondary-button" onClick={() => setEditorOpen(false)}>{readOnly && !guestPosting ? "닫기" : "취소"}</button>{(!readOnly || guestPosting) && <button className="primary-button" onClick={() => void saveDraft()} disabled={uploading}>{uploading && <LoaderCircle className="spin" aria-hidden="true" />}{guestPosting ? "올리기" : "저장"}</button>}</DialogFooter>
         </DialogContent>

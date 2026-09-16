@@ -1,7 +1,7 @@
 "use client";
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import type { Attachment, BoardData, CardComment } from "./board-types";
+import type { Attachment, BoardCard, BoardData, CardComment, LinkPreviewData } from "./board-types";
 import { supabaseConfig, supabaseConfigured } from "./supabase-config";
 
 export type AppUser = { uid: string; email: string | null };
@@ -209,4 +209,22 @@ export async function addSharedComment(token: string, comment: CardComment): Pro
 export async function removeComment(commentId: string) {
   const { error } = await supabase().from("card_comments").delete().eq("id", commentId);
   if (error) throw translate(error);
+}
+
+// 공유 링크로 들어온 사람이 카드를 올립니다. 보드의 글쓰기 허용이 켜져 있을 때만 통과합니다.
+export async function addSharedCard(
+  token: string,
+  card: { id: string; columnId: string; title: string; body: string; link?: LinkPreviewData; author: string },
+): Promise<BoardCard> {
+  const { data, error } = await supabase().rpc("add_shared_card", {
+    token,
+    card_id: card.id,
+    target_column: card.columnId,
+    card_title: card.title,
+    card_body: card.body,
+    card_link: card.link ?? null,
+    author: card.author,
+  });
+  if (error) throw translate(error);
+  return data as BoardCard;
 }

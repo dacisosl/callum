@@ -15,6 +15,8 @@ export interface LinkPreviewData {
   title: string;
   description: string;
   image?: string;
+  // 대표 이미지가 없는 사이트를 위한 파비콘 주소
+  icon?: string;
   siteName?: string;
 }
 
@@ -59,6 +61,8 @@ export interface BoardCard {
   attachments: Attachment[];
   link?: LinkPreviewData;
   tone?: CardTone;
+  // 공유 링크로 들어온 사람이 올린 카드면 작성자 이름이 들어갑니다.
+  guestAuthor?: string;
   createdAt: number;
   updatedAt: number;
 }
@@ -91,6 +95,8 @@ export interface BoardData {
   shareToken: string;
   // 카드 뷰어의 댓글 기능. 꺼져 있으면 주인도 공유받은 사람도 댓글을 볼 수 없습니다.
   commentsEnabled?: boolean;
+  // 공유 링크로 들어온 사람이 이 보드에 카드를 올릴 수 있는지. 보드마다 따로 켭니다.
+  guestPostEnabled?: boolean;
   createdAt: number;
   updatedAt: number;
 }

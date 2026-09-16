@@ -170,6 +170,12 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .tone-swatch { width: 30px; height: 30px; border: 1px solid var(--tone-edge); border-radius: 999px; background: var(--tone-bg); cursor: pointer; transition: transform 120ms ease, box-shadow 120ms ease; }
 .tone-swatch:hover { transform: scale(1.08); }
 .tone-swatch.is-active { box-shadow: 0 0 0 2px white, 0 0 0 4px var(--primary); }
+/* 대표 이미지가 없는 링크 카드의 대체 표지 */
+.link-cover { height: 96px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 7px; background: linear-gradient(140deg, #eef3fb 0%, #e7ecf6 100%); }
+.link-cover img { width: 34px; height: 34px; object-fit: contain; border-radius: 8px; background: white; box-shadow: 0 1px 4px rgba(20,30,38,.12); }
+.link-cover > svg { width: 24px; color: #6b7d96; }
+.link-cover span { max-width: 88%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #5a6875; font-size: 12px; font-weight: 700; }
+.link-preview > img.is-icon { width: 46px; height: 46px; margin: 0 19px; object-fit: contain; border-radius: 9px; background: white; }
 .pdf-preview, .video-preview { position: relative; display: block; overflow: hidden; background: #eef2f5; }
 .pdf-preview { height: 150px; background: #faeeec; }
 .pdf-preview iframe { width: 100%; height: 100%; display: block; border: 0; pointer-events: none; background: #faeeec; }
@@ -180,6 +186,10 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .play-badge { top: 50%; left: 50%; width: 46px; height: 46px; border-radius: 999px; background: rgba(20,30,38,.72); color: white; transform: translate(-50%, -50%); box-shadow: 0 6px 18px rgba(0,0,0,.25); }
 .play-badge svg { width: 20px; margin-left: 2px; fill: currentColor; }
 .card-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+/* 공유 링크로 들어온 사람이 올린 카드 표시 */
+.guest-tag { display: inline-flex; align-items: center; gap: 4px; margin-top: 7px; padding: 2px 8px; border-radius: 999px; background: #eef3ff; color: #2f56ad; font-size: 11px; font-style: normal; font-weight: 700; }
+.guest-tag svg { width: 12px; }
+.viewer-kicker .guest-tag { margin-top: 0; margin-left: 2px; }
 .comment-count { display: inline-flex; align-items: center; gap: 4px; margin-top: 10px; color: #6b7881; font-size: 12px; font-weight: 650; }
 .comment-count svg { width: 13px; }
 /* 카드 타일 맨 아래에 보이는 첫 댓글 미리보기 */
@@ -190,12 +200,13 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .comment-peek-head b { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #3c4a54; font-weight: 750; }
 .comment-peek-head em { flex: none; padding: 0 5px; border-radius: 999px; background: var(--primary); color: white; font-size: 10px; font-style: normal; font-weight: 700; }
 .comment-peek-head i { flex: none; margin-left: auto; color: #7a868e; font-size: 11px; font-style: normal; }
-.comment-peek-body { display: -webkit-box; overflow: hidden; color: #4b5860; font-size: 12px; line-height: 1.5; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.comment-peek-body { display: -webkit-box; overflow: hidden; color: #4b5860; font-size: 12px; line-height: 1.5; white-space: pre-line; overflow-wrap: anywhere; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .card-heading { gap: 8px; padding-right: 34px; }
 .card-heading strong { font-size: 14px; line-height: 1.4; letter-spacing: -.01em; }
 .card-type { width: 28px; height: 28px; display: grid; place-items: center; flex: 0 0 28px; border-radius: 8px; color: #41515c; background: #eef2f5; }
 .card-type svg { width: 14px; }
-.card-body { display: -webkit-box; margin-top: 8px; overflow: hidden; color: #64717a; font-size: 13px; line-height: 1.55; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
+/* 카드 타일 본문도 뷰어처럼 줄바꿈을 살립니다. pre-line은 줄바꿈만 남기고 군더더기 공백은 접습니다. */
+.card-body { display: -webkit-box; margin-top: 8px; overflow: hidden; color: #64717a; font-size: 13px; line-height: 1.55; white-space: pre-line; overflow-wrap: anywhere; -webkit-line-clamp: 4; -webkit-box-orient: vertical; }
 .link-source, .attachment-count { display: inline-flex; align-items: center; gap: 4px; margin-top: 10px; color: #6b7881; font-size: 12px; font-weight: 650; }
 .link-source { color: #315fbc; }
 .link-source svg { width: 12px; }

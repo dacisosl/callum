@@ -213,3 +213,106 @@ $$;
 
 grant execute on function public.get_shared_comments(text) to anon, authenticated;
 grant execute on function public.add_shared_comment(text, text, text, text, text) to anon, authenticated;
+
+-- 6. 공유받은 사람의 카드 작성: 보드의 data->>'guestPostEnabled' 가 true 일 때만 동작합니다.
+--    주인의 보드 데이터(jsonb) 안에 카드를 직접 덧붙이므로 주인이 보는 화면과 같은 카드가 됩니다.
+create or replace function public.add_shared_card(
+  token text,
+  card_id text,
+  target_column text,
+  card_title text,
+  card_body text,
+  card_link jsonb,
+  author text
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  target public.boards%rowtype;
+  new_card jsonb;
+  card_total int;
+  now_ms bigint := (extract(epoch from now()) * 1000)::bigint;
+begin
+  select * into target
+  from public.boards b
+  where b.share_enabled = true
+    and token <> ''
+    and b.share_token = token
+    and coalesce((b.data ->> 'guestPostEnabled')::boolean, false)
+  limit 1;
+  if not found then
+    raise exception '이 보드에는 카드를 올릴 수 없습니다.';
+  end if;
+
+  if card_id is null or length(card_id) = 0 or length(card_id) > 80 then
+    raise exception '카드 ID가 올바르지 않습니다.';
+  end if;
+  if card_title is null or length(btrim(card_title)) = 0 then
+    raise exception '카드 제목을 입력해 주세요.';
+  end if;
+  if length(card_title) > 120 or length(coalesce(card_body, '')) > 3000 then
+    raise exception '카드 내용이 너무 깁니다.';
+  end if;
+  if not exists (
+    select 1
+    from jsonb_array_elements(coalesce(target.data -> 'columns', '[]'::jsonb)) col
+    where col ->> 'id' = target_column
+  ) then
+    raise exception '칼럼을 찾을 수 없습니다.';
+  end if;
+  -- 같은 ID의 카드가 이미 있으면 덧붙이지 않습니다(중복 전송 방지).
+  if exists (
+    select 1
+    from jsonb_array_elements(coalesce(target.data -> 'columns', '[]'::jsonb)) col,
+         jsonb_array_elements(coalesce(col -> 'cards', '[]'::jsonb)) card
+    where card ->> 'id' = card_id
+  ) then
+    raise exception '이미 올린 카드입니다.';
+  end if;
+  -- 공개 쓰기 경로이므로 보드 하나가 무한히 커지지 않도록 상한을 둡니다.
+  select count(*) into card_total
+  from jsonb_array_elements(coalesce(target.data -> 'columns', '[]'::jsonb)) col,
+       jsonb_array_elements(coalesce(col -> 'cards', '[]'::jsonb)) card;
+  if card_total >= 2000 then
+    raise exception '이 보드에는 더 이상 카드를 올릴 수 없습니다.';
+  end if;
+
+  new_card := jsonb_strip_nulls(jsonb_build_object(
+    'id', card_id,
+    'title', left(btrim(card_title), 120),
+    'body', left(btrim(coalesce(card_body, '')), 3000),
+    'attachments', '[]'::jsonb,
+    'link', card_link,
+    'guestAuthor', left(coalesce(nullif(btrim(author), ''), '익명'), 40),
+    'createdAt', now_ms,
+    'updatedAt', now_ms
+  ));
+
+  -- 대상 칼럼의 카드 목록 맨 앞에 새 카드를 넣습니다. 다른 칼럼은 그대로 둡니다.
+  update public.boards b
+  set data = jsonb_set(
+        b.data,
+        '{columns}',
+        (
+          select coalesce(jsonb_agg(
+            case
+              when col ->> 'id' = target_column
+                then jsonb_set(col, '{cards}', new_card || coalesce(col -> 'cards', '[]'::jsonb))
+              else col
+            end
+            order by ordinality
+          ), '[]'::jsonb)
+          from jsonb_array_elements(coalesce(b.data -> 'columns', '[]'::jsonb)) with ordinality as t(col, ordinality)
+        )
+      ) || jsonb_build_object('updatedAt', now_ms),
+      updated_at = now_ms
+  where b.id = target.id;
+
+  return new_card;
+end;
+$$;
+
+grant execute on function public.add_shared_card(text, text, text, text, text, jsonb, text) to anon, authenticated;

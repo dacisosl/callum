@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  CalendarClock,
   ChevronDown,
   ChevronUp,
   Clock3,
@@ -14,6 +15,7 @@ import {
   MoreHorizontal,
   Pencil,
   Plus,
+  RotateCcw,
   Search,
   Share2,
   Trash2,
@@ -30,6 +32,16 @@ import {
 } from "@/components/ui/dropdown-menu";
 import type { BoardData } from "@/lib/board-types";
 
+// 공유 링크 만료 안내. 0이거나 없으면 만료되지 않습니다.
+function shareExpiry(board: BoardData) {
+  const expires = board.shareExpiresAt;
+  if (!expires) return { expired: false, text: "만료 없음" };
+  const until = new Date(expires).toLocaleDateString("ko-KR", { year: "numeric", month: "short", day: "numeric" });
+  if (expires <= Date.now()) return { expired: true, text: `${until} 만료됨` };
+  const days = Math.ceil((expires - Date.now()) / 86400000);
+  return { expired: false, text: `${until}까지 · ${days}일 남음` };
+}
+
 function formatUpdated(value: number) {
   const minutes = Math.round((Date.now() - value) / 60000);
   if (minutes < 1) return "방금";
@@ -41,7 +53,7 @@ function formatUpdated(value: number) {
   return new Date(value).toLocaleDateString("ko-KR", { year: "numeric", month: "short", day: "numeric" });
 }
 
-export function BoardHome({ boards, demo, showLogout, onOpen, onCreate, onRename, onDelete, onLogout, onToggleShare }: {
+export function BoardHome({ boards, demo, showLogout, onOpen, onCreate, onRename, onDelete, onLogout, onToggleShare, onRenewShare }: {
   boards: BoardData[];
   demo: boolean;
   showLogout: boolean;
@@ -51,6 +63,7 @@ export function BoardHome({ boards, demo, showLogout, onOpen, onCreate, onRename
   onDelete: (board: BoardData) => void;
   onLogout: () => void;
   onToggleShare: (board: BoardData, enabled: boolean) => void;
+  onRenewShare: (board: BoardData) => void;
 }) {
   const [queryText, setQueryText] = useState("");
   const [listOpen, setListOpen] = useState(true);
@@ -102,19 +115,24 @@ export function BoardHome({ boards, demo, showLogout, onOpen, onCreate, onRename
             </div>
             {listOpen && (
               <ul>
-                {sharedBoards.map((board) => (
-                  <li key={board.id}>
+                {sharedBoards.map((board) => {
+                  const expiry = shareExpiry(board);
+                  return (
+                  <li key={board.id} className={expiry.expired ? "is-expired" : undefined}>
                     <button className="share-list-title" onClick={() => onOpen(board.id)}>
                       <Link2 aria-hidden="true" />
                       <strong>{board.title}</strong>
                       {board.commentsEnabled && <em><MessageCircle aria-hidden="true" />댓글</em>}
                     </button>
+                    <span className="share-list-expiry"><CalendarClock aria-hidden="true" />{expiry.text}</span>
                     <input readOnly value={shareUrl(board)} aria-label={`${board.title} 공유 링크`} onFocus={(event) => event.currentTarget.select()} />
+                    {expiry.expired && <button onClick={() => onRenewShare(board)} aria-label={`${board.title} 공유 기간 연장`} title="기간 연장"><RotateCcw aria-hidden="true" /></button>}
                     <button className="share-list-copy" onClick={() => copyLink(board)} aria-label={`${board.title} 공유 링크 복사`} title="링크 복사"><Copy aria-hidden="true" /></button>
                     <a href={shareUrl(board) || undefined} target="_blank" rel="noreferrer" aria-label={`${board.title} 공유 화면 열기`} title="공유 화면 열기"><ExternalLink aria-hidden="true" /></a>
                     <button onClick={() => onToggleShare(board, false)} aria-label={`${board.title} 공유 중지`} title="공유 중지"><Link2Off aria-hidden="true" /></button>
                   </li>
-                ))}
+                  );
+                })}
               </ul>
             )}
             {demo && <p className="share-list-note">로컬 데모 링크는 이 브라우저에서만 열립니다.</p>}

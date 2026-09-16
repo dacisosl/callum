@@ -40,7 +40,18 @@ export const CARD_TONES: { value: CardTone; label: string }[] = [
   { value: "slate", label: "회색" },
 ];
 
-// 칼럼 제목 막대와 + 버튼에 쓰는 색상(HSL 색조). 값이 없으면 칼럼 순서대로 돌아가며 배정됩니다.
+// 공유 링크 만료 기간. 무제한은 만료 시각을 0으로 저장합니다.
+export type ShareDuration = "month" | "year" | "forever";
+
+export const SHARE_DURATIONS: { value: ShareDuration; label: string; days: number }[] = [
+  { value: "month", label: "1개월", days: 30 },
+  { value: "year", label: "1년", days: 365 },
+  { value: "forever", label: "무제한", days: 0 },
+];
+
+export const DEFAULT_SHARE_DURATION: ShareDuration = "year";
+
+// 칼럼 제목 막대와 + 버튼에 쓰는 색상(HSL 색조). 값이 없으면 모든 칼럼이 같은 기본색을 씁니다.
 export const COLUMN_HUES: { value: number; label: string }[] = [
   { value: 222, label: "파랑" },
   { value: 262, label: "보라" },
@@ -89,6 +100,10 @@ export interface BoardData {
   ownerId?: string;
   shareEnabled: boolean;
   shareToken: string;
+  // 공유 링크 만료 시각(밀리초). 0이거나 없으면 만료되지 않습니다.
+  shareExpiresAt?: number;
+  // 만료 시각을 계산할 때 고른 기간. 링크를 다시 발급할 때도 이 값을 씁니다.
+  shareDuration?: ShareDuration;
   // 카드 뷰어의 댓글 기능. 꺼져 있으면 주인도 공유받은 사람도 댓글을 볼 수 없습니다.
   commentsEnabled?: boolean;
   createdAt: number;

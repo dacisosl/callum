@@ -19,7 +19,6 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import type { AppUser } from "@/lib/supabase-client";
 import {
-  CalendarClock,
   ExternalLink,
   FileText,
   GripVertical,
@@ -84,8 +83,6 @@ import { supabaseConfigured } from "@/lib/supabase-config";
 import {
   CARD_TONES,
   COLUMN_HUES,
-  DEFAULT_SHARE_DURATION,
-  SHARE_DURATIONS,
   type Attachment,
   type BoardCard,
   type BoardColumn,
@@ -94,7 +91,6 @@ import {
   type CardDraft,
   type CardTone,
   type LinkPreviewData,
-  type ShareDuration,
 } from "@/lib/board-types";
 
 const LOCAL_KEY = "pillar-boards-v3";
@@ -202,27 +198,6 @@ const DEFAULT_COLUMN_HUE = COLUMN_HUES[0].value;
 
 function columnHue(column: BoardColumn) {
   return column.hue ?? DEFAULT_COLUMN_HUE;
-}
-
-// 공유 만료: 고른 기간을 지금 기준의 만료 시각으로 바꿉니다. 무제한은 0입니다.
-function shareExpiryFrom(duration: ShareDuration) {
-  const days = SHARE_DURATIONS.find((item) => item.value === duration)?.days ?? 0;
-  return days ? Date.now() + days * 24 * 60 * 60 * 1000 : 0;
-}
-
-function isShareExpired(board: Pick<BoardData, "shareExpiresAt">) {
-  const expires = board.shareExpiresAt;
-  return Boolean(expires) && expires! <= Date.now();
-}
-
-// "2027년 9월 16일까지 · 364일 남음" 같은 안내 문구를 만듭니다.
-function shareExpiryText(board: Pick<BoardData, "shareExpiresAt">) {
-  const expires = board.shareExpiresAt;
-  if (!expires) return "만료되지 않습니다";
-  const until = formatDate(expires);
-  if (isShareExpired(board)) return `${until} 만료됨`;
-  const days = Math.ceil((expires - Date.now()) / (24 * 60 * 60 * 1000));
-  return `${until}까지 · ${days}일 남음`;
 }
 
 function readLocalComments(): CardComment[] {
@@ -603,7 +578,7 @@ export function BoardApp() {
       if (sharedToken) {
         const shared = supabaseConfigured
           ? await (await import("@/lib/supabase-client")).loadSharedBoard(sharedToken)
-          : readLocalBoards().find((board) => board.shareEnabled && board.shareToken === sharedToken && !isShareExpired(board)) ?? null;
+          : readLocalBoards().find((board) => board.shareEnabled && board.shareToken === sharedToken) ?? null;
         if (!cancelled) {
           setBoards(shared ? [shared] : []);
           if (shared) setActiveBoardId(shared.id);
@@ -861,32 +836,11 @@ export function BoardApp() {
   }
 
   const shareUrl = useMemo(() => activeBoard?.shareToken && typeof window !== "undefined" ? `${window.location.origin}${window.location.pathname}?share=${activeBoard.shareToken}` : "", [activeBoard?.shareToken]);
-  // 공유를 켜면 만료 기간이 없던 보드는 기본값(1년)으로 시작합니다.
   function setSharing(enabled: boolean) {
-    updateActiveBoard((board) => {
-      if (!enabled) return { ...board, shareEnabled: false };
-      const duration = board.shareDuration ?? DEFAULT_SHARE_DURATION;
-      const keepExpiry = board.shareExpiresAt !== undefined && !isShareExpired(board);
-      return {
-        ...board,
-        shareEnabled: true,
-        shareToken: board.shareToken || makeShareToken(),
-        shareDuration: duration,
-        shareExpiresAt: keepExpiry ? board.shareExpiresAt : shareExpiryFrom(duration),
-      };
-    });
-  }
-  // 기간을 고르면 지금을 기준으로 만료 시각을 다시 계산합니다. 만료된 링크도 이걸로 되살립니다.
-  function setShareDuration(duration: ShareDuration) {
-    updateActiveBoard((board) => ({ ...board, shareDuration: duration, shareExpiresAt: shareExpiryFrom(duration) }));
-    const label = SHARE_DURATIONS.find((item) => item.value === duration)?.label ?? "";
-    toast.success(duration === "forever" ? "만료 없이 공유합니다." : `지금부터 ${label} 동안 공유합니다.`);
+    updateActiveBoard((board) => ({ ...board, shareEnabled: enabled, shareToken: enabled ? board.shareToken || makeShareToken() : board.shareToken }));
   }
   function regenerateShareLink() {
-    updateActiveBoard((board) => {
-      const duration = board.shareDuration ?? DEFAULT_SHARE_DURATION;
-      return { ...board, shareEnabled: true, shareToken: makeShareToken(), shareDuration: duration, shareExpiresAt: shareExpiryFrom(duration) };
-    });
+    updateActiveBoard((board) => ({ ...board, shareEnabled: true, shareToken: makeShareToken() }));
     toast.success("새 공유 링크를 만들었습니다.");
   }
 
@@ -936,19 +890,8 @@ export function BoardApp() {
           onRename={(board) => { const title = window.prompt("새 보드 이름", board.title)?.trim(); if (title) updateBoard(board.id, (item) => ({ ...item, title })); }}
           onDelete={(board) => setDeleteTarget({ kind: "board", id: board.id, title: board.title })}
           onToggleShare={(board, enabled) => {
-            updateBoard(board.id, (item) => {
-              if (!enabled) return { ...item, shareEnabled: false };
-              const duration = item.shareDuration ?? DEFAULT_SHARE_DURATION;
-              const keepExpiry = item.shareExpiresAt !== undefined && !isShareExpired(item);
-              return { ...item, shareEnabled: true, shareToken: item.shareToken || makeShareToken(), shareDuration: duration, shareExpiresAt: keepExpiry ? item.shareExpiresAt : shareExpiryFrom(duration) };
-            });
+            updateBoard(board.id, (item) => ({ ...item, shareEnabled: enabled, shareToken: enabled ? item.shareToken || makeShareToken() : item.shareToken }));
             toast.success(enabled ? `${board.title} 공유 링크를 만들었습니다.` : `${board.title} 공유를 중지했습니다.`);
-          }}
-          onRenewShare={(board) => {
-            const duration = board.shareDuration ?? DEFAULT_SHARE_DURATION;
-            updateBoard(board.id, (item) => ({ ...item, shareExpiresAt: shareExpiryFrom(duration) }));
-            const label = SHARE_DURATIONS.find((item) => item.value === duration)?.label ?? "";
-            toast.success(`${board.title} 공유 기간을 ${label} 연장했습니다.`);
           }}
           onLogout={() => void import("@/lib/supabase-client").then((backend) => backend.logout())}
         />
@@ -1057,7 +1000,7 @@ export function BoardApp() {
       </Dialog>
 
       <Dialog open={shareOpen} onOpenChange={setShareOpen}>
-        <DialogContent className="share-dialog"><DialogHeader><DialogTitle>보드 공유</DialogTitle><DialogDescription>링크를 가진 사람은 이 보드를 읽을 수 있습니다.</DialogDescription></DialogHeader><div className="share-switch-row"><div><strong>읽기 전용 링크</strong><span>{activeBoard.shareEnabled ? "공유 중" : "비공개"}</span></div><Switch checked={activeBoard.shareEnabled} onCheckedChange={setSharing} aria-label="읽기 전용 공유" /></div><div className="share-switch-row"><div><strong>댓글</strong><span>{commentsEnabled ? "카드마다 댓글을 남길 수 있습니다" : "꺼짐 · 카드 뷰어에 댓글란이 보이지 않습니다"}</span></div><Switch checked={commentsEnabled} onCheckedChange={setCommentsEnabled} aria-label="댓글 허용" /></div>{activeBoard.shareEnabled && <><div className="share-expiry"><div className="share-expiry-head"><CalendarClock aria-hidden="true" /><strong>만료 기간</strong><span className={isShareExpired(activeBoard) ? "is-expired" : undefined}>{shareExpiryText(activeBoard)}</span></div><div className="share-duration-row" role="radiogroup" aria-label="공유 만료 기간">{SHARE_DURATIONS.map((option) => <button key={option.value} type="button" role="radio" aria-checked={(activeBoard.shareDuration ?? DEFAULT_SHARE_DURATION) === option.value} className={`share-duration${(activeBoard.shareDuration ?? DEFAULT_SHARE_DURATION) === option.value ? " is-active" : ""}`} onClick={() => setShareDuration(option.value)}>{option.label}</button>)}</div></div><div className="share-url"><input readOnly value={shareUrl} /><button onClick={() => { void navigator.clipboard.writeText(shareUrl); toast.success("공유 링크를 복사했습니다."); }}><Copy />복사</button></div><button className="text-button" onClick={regenerateShareLink}><RotateCcw />기존 링크를 끊고 새 링크 만들기</button>{!supabaseConfigured && <p className="share-warning">로컬 데모 링크는 이 브라우저에서만 확인할 수 있습니다.</p>}</>}</DialogContent>
+        <DialogContent className="share-dialog"><DialogHeader><DialogTitle>보드 공유</DialogTitle><DialogDescription>링크를 가진 사람은 이 보드를 읽을 수 있습니다.</DialogDescription></DialogHeader><div className="share-switch-row"><div><strong>읽기 전용 링크</strong><span>{activeBoard.shareEnabled ? "공유 중" : "비공개"}</span></div><Switch checked={activeBoard.shareEnabled} onCheckedChange={setSharing} aria-label="읽기 전용 공유" /></div><div className="share-switch-row"><div><strong>댓글</strong><span>{commentsEnabled ? "카드마다 댓글을 남길 수 있습니다" : "꺼짐 · 카드 뷰어에 댓글란이 보이지 않습니다"}</span></div><Switch checked={commentsEnabled} onCheckedChange={setCommentsEnabled} aria-label="댓글 허용" /></div>{activeBoard.shareEnabled && <><div className="share-url"><input readOnly value={shareUrl} /><button onClick={() => { void navigator.clipboard.writeText(shareUrl); toast.success("공유 링크를 복사했습니다."); }}><Copy />복사</button></div><button className="text-button" onClick={regenerateShareLink}><RotateCcw />기존 링크를 끊고 새 링크 만들기</button>{!supabaseConfigured && <p className="share-warning">로컬 데모 링크는 이 브라우저에서만 확인할 수 있습니다.</p>}</>}</DialogContent>
       </Dialog>
 
       <AlertDialog open={Boolean(deleteTarget)} onOpenChange={(open) => !open && setDeleteTarget(null)}>

@@ -13,9 +13,6 @@ create table if not exists public.boards (
   updated_at bigint not null
 );
 
--- 공유 링크 만료 시각(밀리초). 0이면 만료되지 않습니다. 이미 만든 테이블에도 안전하게 추가됩니다.
-alter table public.boards add column if not exists share_expires_at bigint not null default 0;
-
 create index if not exists boards_owner_id_idx on public.boards (owner_id);
 create unique index if not exists boards_share_token_idx
   on public.boards (share_token) where share_token <> '';
@@ -50,7 +47,6 @@ as $$
   where share_enabled = true
     and token <> ''
     and share_token = token
-    and (share_expires_at = 0 or share_expires_at > (extract(epoch from now()) * 1000)::bigint)
   limit 1;
 $$;
 
@@ -143,7 +139,6 @@ as $$
   where b.share_enabled = true
     and token <> ''
     and b.share_token = token
-    and (b.share_expires_at = 0 or b.share_expires_at > (extract(epoch from now()) * 1000)::bigint)
     and coalesce((b.data ->> 'commentsEnabled')::boolean, false);
 $$;
 
@@ -169,7 +164,6 @@ begin
   where b.share_enabled = true
     and token <> ''
     and b.share_token = token
-    and (b.share_expires_at = 0 or b.share_expires_at > (extract(epoch from now()) * 1000)::bigint)
     and coalesce((b.data ->> 'commentsEnabled')::boolean, false)
   limit 1;
   if not found then

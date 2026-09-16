@@ -86,7 +86,6 @@ export async function saveBoard(board: BoardData, ownerId: string) {
     data: payload,
     share_enabled: payload.shareEnabled,
     share_token: payload.shareToken || "",
-    share_expires_at: payload.shareExpiresAt ?? 0,
     created_at: payload.createdAt,
     updated_at: payload.updatedAt,
   });

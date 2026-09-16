@@ -382,3 +382,22 @@ end;
 $$;
 
 grant execute on function public.add_shared_card(text, text, text, text, text, jsonb, text, jsonb) to anon, authenticated;
+
+-- 7. 내 사용량: 홈 화면 대시보드용. 내 보드 데이터와 댓글이 차지하는 바이트를 돌려줍니다.
+--    security invoker 이므로 RLS 가 그대로 적용되어 남의 보드는 세지 않습니다.
+create or replace function public.get_my_usage()
+returns jsonb
+language sql
+stable
+security invoker
+set search_path = public
+as $$
+  select jsonb_build_object(
+    'board_count', (select count(*) from public.boards b where b.owner_id = auth.uid()),
+    'board_bytes', (select coalesce(sum(pg_column_size(b.data)), 0) from public.boards b where b.owner_id = auth.uid()),
+    'comment_count', (select count(*) from public.card_comments c join public.boards b on b.id = c.board_id where b.owner_id = auth.uid()),
+    'comment_bytes', (select coalesce(sum(pg_column_size(c.*)), 0) from public.card_comments c join public.boards b on b.id = c.board_id where b.owner_id = auth.uid())
+  );
+$$;
+
+grant execute on function public.get_my_usage() to authenticated;

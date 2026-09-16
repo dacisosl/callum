@@ -1,7 +1,7 @@
 "use client";
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import type { Attachment, BoardCard, BoardData, CardComment, LinkPreviewData } from "./board-types";
+import type { Attachment, BoardCard, BoardData, CardComment, LinkPreviewData, UsageSnapshot } from "./board-types";
 import { supabaseConfig, supabaseConfigured } from "./supabase-config";
 
 export type AppUser = { uid: string; email: string | null };
@@ -253,4 +253,52 @@ export async function addSharedCard(
   });
   if (error) throw translate(error);
   return data as BoardCard;
+}
+
+// ---- 사용량 ----
+
+type StorageEntry = { name: string; id: string | null; metadata?: { size?: number } | null };
+
+// 한 폴더의 파일 크기를 더합니다. 하위 폴더는 재귀로 들어갑니다. 1000개가 넘으면 partial 로 표시합니다.
+async function sumFolder(prefix: string, depth: number): Promise<{ bytes: number; files: number; partial: boolean }> {
+  if (depth > 3) return { bytes: 0, files: 0, partial: true };
+  const { data, error } = await supabase().storage.from(BUCKET).list(prefix, { limit: 1000 });
+  if (error || !data) return { bytes: 0, files: 0, partial: Boolean(error) };
+  let bytes = 0;
+  let files = 0;
+  let partial = data.length >= 1000;
+  for (const entry of data as StorageEntry[]) {
+    if (entry.id === null) {
+      const nested = await sumFolder(`${prefix}/${entry.name}`, depth + 1);
+      bytes += nested.bytes; files += nested.files; partial = partial || nested.partial;
+    } else {
+      bytes += Number(entry.metadata?.size ?? 0);
+      files += 1;
+    }
+  }
+  return { bytes, files, partial };
+}
+
+// 내 파일({내 ID}/...)과 내 보드에 손님이 올린 파일(guest/{보드ID}/...)을 모두 셉니다.
+export async function measureUsage(ownerId: string, boards: BoardData[]): Promise<UsageSnapshot> {
+  const mine = await sumFolder(ownerId, 0);
+  let guestBytes = 0;
+  let guestFiles = 0;
+  let partial = mine.partial;
+  for (const board of boards) {
+    const guest = await sumFolder(`guest/${board.id}`, 1);
+    guestBytes += guest.bytes; guestFiles += guest.files; partial = partial || guest.partial;
+  }
+  const { data } = await supabase().rpc("get_my_usage");
+  const db = (data ?? {}) as { board_count?: number; board_bytes?: number; comment_count?: number; comment_bytes?: number };
+  return {
+    storageBytes: mine.bytes + guestBytes,
+    storageFiles: mine.files + guestFiles,
+    dbBytes: Number(db.board_bytes ?? 0) + Number(db.comment_bytes ?? 0),
+    boardCount: Number(db.board_count ?? boards.length),
+    cardCount: boards.reduce((sum, board) => sum + board.columns.reduce((inner, column) => inner + column.cards.length, 0), 0),
+    commentCount: Number(db.comment_count ?? 0),
+    measuredAt: Date.now(),
+    partial,
+  };
 }

@@ -98,6 +98,7 @@ import {
   type CardDraft,
   type CardTone,
   type LinkPreviewData,
+  type UsageSnapshot,
 } from "@/lib/board-types";
 
 const LOCAL_KEY = "pillar-boards-v3";
@@ -387,6 +388,59 @@ function filesFromClipboard(data: DataTransfer): File[] {
   for (const item of Array.from(data.items ?? [])) if (item.kind === "file") push(item.getAsFile());
   for (const file of Array.from(data.files ?? [])) push(file);
   return list;
+}
+
+// 업로드 전에 큰 이미지를 줄입니다. 긴 쪽 2000px, JPEG 품질 0.85. 투명한 PNG 는 PNG 로 유지하고
+// GIF·SVG 는 건드리지 않습니다. 줄인 결과가 더 크면 원본을 씁니다.
+const SHRINK_MAX_EDGE = 2000;
+const SHRINK_SKIP_BELOW = 300 * 1024;
+
+async function decodeImage(file: File): Promise<ImageBitmap | HTMLImageElement | null> {
+  try {
+    return await createImageBitmap(file, { imageOrientation: "from-image" });
+  } catch {
+    return new Promise((resolve) => {
+      const url = URL.createObjectURL(file);
+      const image = new Image();
+      image.onload = () => { URL.revokeObjectURL(url); resolve(image); };
+      image.onerror = () => { URL.revokeObjectURL(url); resolve(null); };
+      image.src = url;
+    });
+  }
+}
+
+function hasTransparentPixels(context: CanvasRenderingContext2D, width: number, height: number) {
+  const step = Math.max(1, Math.floor(Math.sqrt((width * height) / 4000)));
+  const pixels = context.getImageData(0, 0, width, height).data;
+  for (let y = 0; y < height; y += step) {
+    for (let x = 0; x < width; x += step) {
+      if (pixels[(y * width + x) * 4 + 3] < 250) return true;
+    }
+  }
+  return false;
+}
+
+async function shrinkImage(file: File): Promise<File> {
+  if (!file.type.startsWith("image/") || file.type === "image/gif" || file.type === "image/svg+xml") return file;
+  const source = await decodeImage(file);
+  if (!source) return file;
+  const width = "naturalWidth" in source ? source.naturalWidth : source.width;
+  const height = "naturalHeight" in source ? source.naturalHeight : source.height;
+  const scale = Math.min(1, SHRINK_MAX_EDGE / Math.max(width, height));
+  if (scale === 1 && file.size < SHRINK_SKIP_BELOW) return file;
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(width * scale));
+  canvas.height = Math.max(1, Math.round(height * scale));
+  const context = canvas.getContext("2d");
+  if (!context) return file;
+  context.drawImage(source, 0, 0, canvas.width, canvas.height);
+  if ("close" in source) source.close();
+  const keepPng = file.type === "image/png" && hasTransparentPixels(context, canvas.width, canvas.height);
+  const type = keepPng ? "image/png" : "image/jpeg";
+  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, type, 0.85));
+  if (!blob || blob.size >= file.size) return file;
+  const stem = file.name.replace(/\.[^.]+$/, "") || "image";
+  return new File([blob], `${stem}.${keepPng ? "png" : "jpg"}`, { type, lastModified: file.lastModified });
 }
 
 function fileToDataUrl(file: File) {
@@ -786,6 +840,9 @@ export function BoardApp() {
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const [comments, setComments] = useState<CardComment[]>([]);
   const [commentAuthor, setCommentAuthor] = useState("");
+  // 홈 화면 사용량 대시보드
+  const [usage, setUsage] = useState<UsageSnapshot | null>(null);
+  const [usageLoading, setUsageLoading] = useState(false);
   const boardsRef = useRef(boards);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const activeBoard = boards.find((board) => board.id === activeBoardId) ?? boards[0];
@@ -808,6 +865,40 @@ export function BoardApp() {
     }
     return summaries;
   }, [comments]);
+  // 사용량을 다시 셉니다. Supabase 가 있으면 저장소 목록과 서버 함수로, 데모 모드면 로컬 데이터로 셉니다.
+  const refreshUsage = useCallback(async () => {
+    setUsageLoading(true);
+    try {
+      const current = boardsRef.current;
+      if (supabaseConfigured && user) {
+        setUsage(await (await import("@/lib/supabase-client")).measureUsage(user.uid, current));
+      } else {
+        const attachments = current.flatMap((board) => board.columns.flatMap((column) => column.cards.flatMap((card) => card.attachments)));
+        setUsage({
+          storageBytes: attachments.reduce((sum, item) => sum + item.size, 0),
+          storageFiles: attachments.length,
+          dbBytes: new Blob([JSON.stringify(current)]).size,
+          boardCount: current.length,
+          cardCount: current.reduce((sum, board) => sum + board.columns.reduce((inner, column) => inner + column.cards.length, 0), 0),
+          commentCount: readLocalComments().length,
+          measuredAt: Date.now(),
+        });
+      }
+    } catch {
+      toast.error("사용량을 불러오지 못했습니다.");
+    } finally {
+      setUsageLoading(false);
+    }
+  }, [user]);
+
+  useEffect(() => {
+    if (view !== "home" || readOnly || loading) return;
+    // 첫 측정은 다음 틱으로 넘기고(렌더 직후 상태 변경을 피함), 홈을 보는 동안 1분마다 다시 셉니다.
+    const first = window.setTimeout(() => void refreshUsage(), 0);
+    const timer = window.setInterval(() => void refreshUsage(), 60_000);
+    return () => { window.clearTimeout(first); window.clearInterval(timer); };
+  }, [view, readOnly, loading, refreshUsage]);
+
   // 변경 표시와 저장 상태를 한 곳에서 바꿉니다. 저장 effect는 이 값만 보고 동작합니다.
   const markDirty = useCallback((boardId: string) => { setDirtyBoardId(boardId); setSaveStatus("saving"); }, []);
 
@@ -1095,15 +1186,23 @@ export function BoardApp() {
   // 첨부에 실제로 추가된 파일 수를 돌려줍니다. 거부되거나 실패하면 0입니다.
   async function addFiles(files: FileList | File[]): Promise<number> {
     if (!draft || !activeBoard) return 0;
-    const accepted = Array.from(files).filter((file) => {
+    const typed = Array.from(files).filter((file) => {
       const allowed = file.type.startsWith("image/") || file.type === "application/pdf";
       if (!allowed || file.type.startsWith("video/")) { toast.error(`${file.name}: 이미지와 PDF만 첨부할 수 있습니다.`); return false; }
+      return true;
+    });
+    if (!typed.length) return 0;
+    setUploading(true);
+    // 큰 이미지는 먼저 줄인 뒤 크기를 검사합니다. 휴대폰 사진이 수 MB 에서 수백 KB 로 줄어듭니다.
+    const shrunk = await Promise.all(typed.map((file) => shrinkImage(file)));
+    const savedBytes = typed.reduce((sum, file, index) => sum + Math.max(0, file.size - shrunk[index].size), 0);
+    const accepted = shrunk.filter((file) => {
       const maxSize = supabaseConfigured ? MAX_CLOUD_FILE : MAX_DEMO_FILE;
       if (file.size > maxSize) { toast.error(`${file.name}: ${supabaseConfigured ? "30MB" : "2MB"} 이하 파일만 첨부할 수 있습니다.`); return false; }
       return true;
     });
-    if (!accepted.length) return 0;
-    setUploading(true);
+    if (!accepted.length) { setUploading(false); return 0; }
+    if (savedBytes > 512 * 1024) toast.message(`이미지를 ${formatBytes(savedBytes)} 줄여서 올립니다.`);
     try {
       const uploaded: Attachment[] = [];
       for (const file of accepted) {
@@ -1320,6 +1419,9 @@ export function BoardApp() {
           onCreate={createBoard}
           onRename={(board) => { const title = window.prompt("새 보드 이름", board.title)?.trim(); if (title) updateBoard(board.id, (item) => ({ ...item, title })); }}
           onDelete={(board) => setDeleteTarget({ kind: "board", id: board.id, title: board.title })}
+          usage={usage}
+          usageLoading={usageLoading}
+          onRefreshUsage={() => void refreshUsage()}
           onToggleShare={(board, enabled) => {
             updateBoard(board.id, (item) => ({ ...item, shareEnabled: enabled, shareToken: enabled ? item.shareToken || makeShareToken() : item.shareToken }));
             toast.success(enabled ? `${board.title} 공유 링크를 만들었습니다.` : `${board.title} 공유를 중지했습니다.`);

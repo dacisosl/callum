@@ -112,3 +112,20 @@ export interface CardDraft {
   link?: LinkPreviewData;
   tone?: CardTone;
 }
+
+// 홈 화면 사용량 대시보드에 보여 주는 값. 무료 요금제 한도와 비교합니다.
+export interface UsageSnapshot {
+  storageBytes: number;
+  storageFiles: number;
+  dbBytes: number;
+  boardCount: number;
+  cardCount: number;
+  commentCount: number;
+  measuredAt: number;
+  // 저장소 목록이 너무 길어 일부만 세었으면 true
+  partial?: boolean;
+}
+
+// Supabase 무료 요금제 한도. 전송량(월 5GB)은 클라이언트에서 셀 수 없어 대시보드 링크로 안내합니다.
+export const FREE_STORAGE_LIMIT = 1024 * 1024 * 1024;
+export const FREE_DB_LIMIT = 500 * 1024 * 1024;

@@ -334,6 +334,13 @@ function knownService(url: string): KnownService | null {
   return null;
 }
 
+// 주소가 두 번 붙어 버렸거나("...copyhttps://...") 뒤에 다른 글자가 따라오면 첫 주소만 남깁니다.
+function firstUrl(value: string) {
+  const text = value.trim().split(/\s+/)[0] ?? "";
+  const second = text.slice(1).search(/https?:\/\//i);
+  return second >= 0 ? text.slice(0, second + 1) : text;
+}
+
 function hostOf(url: string) {
   try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return url; }
 }
@@ -471,6 +478,11 @@ function LinkRowImage({ link }: { link: LinkPreviewData }) {
   return <img className={stage === "icon" ? "is-icon" : undefined} src={src} alt="" referrerPolicy="no-referrer" onError={next} />;
 }
 
+// 이 카드에 미리보기가 그려지는지. 미리보기 영역을 눌러 카드를 열 수 있게 버튼으로 감쌀 때 씁니다.
+function hasPreview(card: BoardCard) {
+  return card.attachments.some((item) => item.kind === "image" || item.kind === "pdf") || Boolean(card.link);
+}
+
 // 카드 타일 안의 미리보기. 이미지 > PDF 첫 페이지 > 동영상 썸네일 > 링크 썸네일 순서로 하나만 보여줍니다.
 function CardPreview({ card }: { card: BoardCard }) {
   const firstImage = card.attachments.find((item) => item.kind === "image");
@@ -581,7 +593,12 @@ function SortableCard({ card, columnId, readOnly, commentSummary, commentsEnable
 
   return (
     <article ref={setNodeRef} className={`board-card${cardToneClass(card)}${isDragging ? " is-dragging" : ""}`} style={{ transform: CSS.Transform.toString(transform), transition }}>
-      <CardPreview card={card} />
+      {hasPreview(card) && (
+        // 썸네일을 눌러도 카드가 열립니다. 제목 버튼이 따로 있어 스크린리더에는 숨깁니다.
+        <button type="button" className="card-preview-button" onClick={onOpen} tabIndex={-1} aria-hidden="true">
+          <CardPreview card={card} />
+        </button>
+      )}
       <div className="card-row">
       {!readOnly && <button className="drag-handle" aria-label={`${card.title} 이동`} {...attributes} {...listeners}><GripVertical aria-hidden="true" /></button>}
       <button className="card-main" onClick={onOpen} aria-label={`${card.title} 크게 보기`}><CardInner card={card} commentSummary={commentSummary} commentsEnabled={commentsEnabled} ownerName={ownerName} /></button>
@@ -631,7 +648,7 @@ function SortableColumn({ column, readOnly, canAdd, queryText, commentSummaries,
   const style = { transform: CSS.Transform.toString(transform), transition, "--column-hue": hue } as CSSProperties;
 
   return (
-    <article ref={setNodeRef} className={`column${column.collapsed ? " is-collapsed" : ""}${isDragging ? " is-dragging" : ""}`} style={style}>
+    <article ref={setNodeRef} id={`column-${column.id}`} className={`column${column.collapsed ? " is-collapsed" : ""}${isDragging ? " is-dragging" : ""}`} style={style}>
       <header className="column-header">
         {!readOnly && <button className="column-handle" aria-label={`${column.title} 칼럼 이동`} {...attributes} {...listeners}><GripVertical aria-hidden="true" /></button>}
         <button className="column-title" onClick={onToggle} aria-expanded={!column.collapsed}><strong>{column.title}</strong><span>{column.cards.length}</span></button>
@@ -749,6 +766,9 @@ export function BoardApp() {
   const [viewerCardId, setViewerCardId] = useState<string | null>(null);
   // 끌고 있는 카드와, 끌기 시작할 때의 보드(취소·실행 취소용)
   const [dragCardId, setDragCardId] = useState<string | null>(null);
+  // 휴대폰에서 칼럼이 한 화면에 하나씩 보일 때, 지금 보고 있는 칼럼 번호 (칼럼 탭 표시용)
+  const [activeColumnIndex, setActiveColumnIndex] = useState(0);
+  const boardRef = useRef<HTMLElement>(null);
   const dragSnapshot = useRef<BoardData | null>(null);
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const [comments, setComments] = useState<CardComment[]>([]);
@@ -972,6 +992,25 @@ export function BoardApp() {
     finishDrag(next, "카드를 이동했습니다.");
   }
 
+  // 보드가 가로로 스크롤될 때 왼쪽에 가장 가까운 칼럼을 현재 칼럼으로 잡습니다.
+  function handleBoardScroll() {
+    const board = boardRef.current;
+    if (!board) return;
+    const columns = Array.from(board.querySelectorAll<HTMLElement>(":scope > .column"));
+    if (!columns.length) return;
+    const left = board.scrollLeft + board.getBoundingClientRect().left;
+    let nearest = 0;
+    let best = Number.POSITIVE_INFINITY;
+    columns.forEach((element, index) => {
+      const distance = Math.abs(element.getBoundingClientRect().left + board.scrollLeft - left);
+      if (distance < best) { best = distance; nearest = index; }
+    });
+    setActiveColumnIndex((current) => current === nearest ? current : nearest);
+  }
+  function scrollToColumn(columnId: string) {
+    document.getElementById(`column-${columnId}`)?.scrollIntoView({ behavior: "smooth", inline: "start", block: "nearest" });
+  }
+
   function openNewCard(columnId?: string) {
     if (!columnId || (readOnly && !guestPosting)) return;
     setViewerCardId(null);
@@ -1071,7 +1110,7 @@ export function BoardApp() {
 
   // 입력한 주소를 정리합니다. 스킴이 없으면 https를 붙이고, 주소가 아니면 null입니다.
   function normalizeLinkInput(value: string) {
-    let url = value.trim();
+    let url = firstUrl(value);
     if (!url) return "";
     if (!/^https?:\/\//i.test(url)) url = `https://${url}`;
     try { return new URL(url).toString(); } catch { return null; }
@@ -1302,10 +1341,19 @@ export function BoardApp() {
       {!supabaseConfigured && !readOnly && <aside className="demo-banner"><span>로컬 데모 모드 · Supabase 설정을 추가하면 계정과 클라우드 저장이 활성화됩니다.</span><a href="https://supabase.com/dashboard" target="_blank" rel="noreferrer">Supabase 열기 <ExternalLink /></a></aside>}
 
       <div className="board-area">
+      {activeBoard.columns.length > 1 && (
+        <nav className="column-tabs" aria-label="칼럼 이동">
+          {activeBoard.columns.map((column, index) => (
+            <button key={column.id} type="button" className={`column-tab${index === activeColumnIndex ? " is-active" : ""}`} style={{ "--column-hue": columnHue(column) } as CSSProperties} onClick={() => scrollToColumn(column.id)} aria-current={index === activeColumnIndex ? "true" : undefined}>
+              {column.title}<span>{column.cards.length}</span>
+            </button>
+          ))}
+        </nav>
+      )}
       <div className="board-heading"><div><span className="board-kicker">{readOnly ? "공유 보드" : "내 보드"} · 칼럼 {activeBoard.columns.length} · 카드 {activeBoard.columns.reduce((sum, column) => sum + column.cards.length, 0)}</span><h1>{activeBoard.title}</h1></div></div>
       <DndContext sensors={sensors} collisionDetection={boardCollision} onDragStart={handleDragStart} onDragOver={handleDragOver} onDragEnd={handleDragEnd} onDragCancel={handleDragCancel}>
         <SortableContext items={activeBoard.columns.map((column) => column.id)}>
-          <section className="board" aria-label={`${activeBoard.title} 보드`}>
+          <section ref={boardRef} className="board" aria-label={`${activeBoard.title} 보드`} onScroll={handleBoardScroll}>
             {activeBoard.columns.map((column) => <SortableColumn key={column.id} column={column} readOnly={readOnly} canAdd={!readOnly || guestPosting} queryText={queryText} commentSummaries={commentSummaries} commentsEnabled={commentsEnabled} ownerName={ownerName} onAddCard={() => openNewCard(column.id)} onOpenCard={openViewer} onEditCard={(card) => openCard(column.id, card)} onRename={() => {
               const title = window.prompt("새 칼럼 이름", column.title)?.trim();
               if (title) updateActiveBoard((board) => ({ ...board, columns: board.columns.map((item) => item.id === column.id ? { ...item, title } : item) }));
@@ -1333,8 +1381,11 @@ export function BoardApp() {
             void addFiles(pasted).then((count) => { if (count > 0) toast.success(count === 1 ? "클립보드의 이미지를 첨부했습니다." : `클립보드의 파일 ${count}개를 첨부했습니다.`); });
             return;
           }
+          // 글자 칸에 붙여넣을 때는 브라우저가 알아서 넣습니다. 여기서도 채우면 같은 주소가 두 번 들어갑니다.
+          const target = event.target as HTMLElement;
+          if (target.closest("input, textarea")) return;
           const text = event.clipboardData.getData("text").trim();
-          if (/^https?:\/\//i.test(text) && !linkInput) setLinkInput(text);
+          if (/^https?:\/\//i.test(text) && !linkInput) setLinkInput(firstUrl(text));
         }}>
           <DialogHeader><DialogTitle>{draft?.id ? "카드 수정" : "새 카드"}</DialogTitle><DialogDescription>{guestPosting ? "이 보드에 카드를 올립니다. 글과 링크를 담을 수 있습니다." : "글, 링크, 이미지, PDF를 한 카드에 담을 수 있습니다."}</DialogDescription></DialogHeader>
           {draft && <div className="editor-body">

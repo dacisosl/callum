@@ -170,6 +170,9 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .card-title { font-size: 15px; line-height: 1.4; letter-spacing: -.01em; overflow-wrap: anywhere; word-break: keep-all; }
 /* 미리보기가 없는 카드는 제목이 오른쪽 위 메뉴 버튼과 겹치지 않게 비워 둡니다. */
 .board-card:not(:has(> .card-preview)) .card-title { padding-right: 30px; }
+/* 썸네일을 감싼 버튼. 눌러서 카드를 엽니다. */
+.card-preview-button { display: block; width: 100%; padding: 0; border: 0; background: transparent; text-align: left; cursor: pointer; }
+.card-preview-button:hover .card-image, .card-preview-button:hover .link-cover { filter: brightness(1.04); }
 /* 카드 맨 위 미리보기. 카드 폭에 꽉 차고 높이는 2:1로 고정합니다. 첨부 이미지도 같은 높이로 잘라 보여 줍니다. */
 .card-preview { position: relative; display: block; overflow: hidden; background: #eef2f5; }
 .thumb-badge { position: absolute; left: 8px; bottom: 8px; max-width: calc(100% - 16px); padding: 3px 8px; overflow: hidden; border-radius: 7px; background: rgba(255,255,255,.93); color: #34424c; font-size: 11px; font-weight: 750; text-overflow: ellipsis; white-space: nowrap; box-shadow: 0 1px 3px rgba(20,30,38,.15); }
@@ -436,10 +439,23 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   .board-heading h1 { font-size: 19px; }
 }
 
+/* 휴대폰용 칼럼 탭. 칼럼이 한 화면에 하나씩 보일 때 어떤 칼럼이 있는지 보여 주고 눌러서 이동합니다. 터치 기기에서만 보입니다. */
+.column-tabs { display: none; gap: 8px; padding: 10px 12px 0; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+.column-tabs::-webkit-scrollbar { display: none; }
+.column-tab { flex: none; display: inline-flex; align-items: center; gap: 6px; min-height: 34px; padding: 0 12px; border: 1px solid hsl(var(--column-hue) 45% 80%); border-radius: 999px; background: rgba(255,255,255,.8); color: hsl(var(--column-hue) 45% 32%); font-size: 13px; font-weight: 750; cursor: pointer; white-space: nowrap; }
+.column-tab span { min-width: 18px; height: 18px; display: inline-grid; place-items: center; padding: 0 5px; border-radius: 999px; background: hsl(var(--column-hue) 60% 92%); font-size: 11px; }
+.column-tab.is-active { border-color: transparent; background: hsl(var(--column-hue) 48% 40%); color: white; }
+.column-tab.is-active span { background: rgba(255,255,255,.22); color: white; }
+
 /* 칼럼을 화면 폭에 맞추는 것은 터치 기기(휴대폰)에서만 합니다. 데스크톱에서 창을 줄이면
    칼럼 폭(306px)은 그대로 두고 보드를 가로로, 칼럼 안 카드를 세로로 스크롤해서 봅니다. */
 @media (max-width: 760px) and (pointer: coarse) {
-  .board { gap: 12px; padding: 4px 12px 22px; scroll-padding-left: 12px; scroll-snap-type: x proximity; }
+  .column-tabs { display: flex; }
+  .board-heading { height: 48px; }
+  .board { height: calc(100vh - 168px); gap: 12px; padding: 4px 12px 22px; scroll-padding-left: 12px; scroll-snap-type: x mandatory; }
+  .demo-banner + div .board { height: calc(100vh - 210px); }
+  .column { max-height: calc(100vh - 200px); }
+  .demo-banner + div .column { max-height: calc(100vh - 242px); }
   .column { width: calc(100vw - 32px); flex-basis: calc(100vw - 32px); scroll-snap-align: start; }
   .column.is-collapsed { width: 210px; flex-basis: 210px; }
 }

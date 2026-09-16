@@ -52,7 +52,7 @@ import {
   ChevronsUpDown,
   LayoutGrid,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { formatDistanceToNow } from "date-fns";
 import { ko } from "date-fns/locale";
@@ -125,6 +125,18 @@ type ModelContextLike = {
     options?: { signal?: AbortSignal },
   ) => void | Promise<void>;
 };
+
+// 휴대폰(터치 기기, 좁은 화면)용 배치인지. styles.css 의 미디어 쿼리와 같은 조건이며,
+// 스타일이 늦게 오는 순간에도 휴대폰용 요소가 데스크톱에 노출되지 않도록 코드에서도 같이 판단합니다.
+const TOUCH_LAYOUT_QUERY = "(max-width: 760px) and (pointer: coarse)";
+function subscribeTouchLayout(callback: () => void) {
+  const media = window.matchMedia(TOUCH_LAYOUT_QUERY);
+  media.addEventListener("change", callback);
+  return () => media.removeEventListener("change", callback);
+}
+function useTouchLayout() {
+  return useSyncExternalStore(subscribeTouchLayout, () => window.matchMedia(TOUCH_LAYOUT_QUERY).matches, () => false);
+}
 
 // 이벤트 핸들러에서 쓰는 현재 시각. 렌더 중에는 부르지 않습니다.
 function nowMs() {
@@ -769,6 +781,7 @@ export function BoardApp() {
   // 휴대폰에서 칼럼이 한 화면에 하나씩 보일 때, 지금 보고 있는 칼럼 번호 (칼럼 탭 표시용)
   const [activeColumnIndex, setActiveColumnIndex] = useState(0);
   const boardRef = useRef<HTMLElement>(null);
+  const touchLayout = useTouchLayout();
   const dragSnapshot = useRef<BoardData | null>(null);
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const [comments, setComments] = useState<CardComment[]>([]);
@@ -1341,7 +1354,7 @@ export function BoardApp() {
       {!supabaseConfigured && !readOnly && <aside className="demo-banner"><span>로컬 데모 모드 · Supabase 설정을 추가하면 계정과 클라우드 저장이 활성화됩니다.</span><a href="https://supabase.com/dashboard" target="_blank" rel="noreferrer">Supabase 열기 <ExternalLink /></a></aside>}
 
       <div className="board-area">
-      {activeBoard.columns.length > 1 && (
+      {touchLayout && activeBoard.columns.length > 1 && (
         <nav className="column-tabs" aria-label="칼럼 이동">
           {activeBoard.columns.map((column, index) => (
             <button key={column.id} type="button" className={`column-tab${index === activeColumnIndex ? " is-active" : ""}`} style={{ "--column-hue": columnHue(column) } as CSSProperties} onClick={() => scrollToColumn(column.id)} aria-current={index === activeColumnIndex ? "true" : undefined}>

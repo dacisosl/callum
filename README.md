@@ -35,7 +35,9 @@ npm run dev
 
 ## 접속 주소
 
-Vercel은 배포마다 `callum-xxxxxxxx-....vercel.app` 같은 **배포 전용 주소**도 만들지만, 그 주소는 그 배포 시점의 코드에 고정되어 이후 변경이 반영되지 않습니다. 항상 Vercel 대시보드 → 프로젝트 → Domains 에 있는 고정 도메인(`callum-<팀>.vercel.app` 또는 연결한 도메인)으로 접속하고, 공유 링크도 그 도메인에서 만드세요. 공유 링크는 현재 열려 있는 주소를 그대로 씁니다.
+Vercel은 배포마다 `callum-xxxxxxxx-....vercel.app` 같은 **배포 전용 주소**도 만들지만, 그 주소는 그 배포 시점의 코드에 고정되어 이후 변경이 반영되지 않습니다. 고정 도메인은 Vercel 대시보드 → 프로젝트 → Settings → Domains 에 있습니다(`callum-<팀>.vercel.app` 또는 연결한 도메인).
+
+`proxy.ts`가 프로덕션에서 배포 전용 주소로 들어온 요청을 고정 도메인으로 308 리디렉션하므로, 예전에 보낸 배포 전용 링크도 자동으로 최신 화면으로 연결됩니다. 기준 도메인은 Vercel이 넣어 주는 `VERCEL_PROJECT_PRODUCTION_URL`이며, 나만의 도메인을 연결하면 그 도메인이 기준이 됩니다. 공유 링크는 현재 열려 있는 주소를 그대로 쓰므로 고정 도메인에서 만드는 것이 좋습니다.
 
 ## 화면 구성
 
@@ -110,6 +112,7 @@ npm run build
 ## 프로젝트 구조
 
 - `app/board-app.tsx`: 보드 UI와 상호작용 전체
+- `proxy.ts`: 배포 전용 주소를 고정 도메인으로 리디렉션
 - `app/api/og/route.tsx`: 공유 링크의 미리보기 이미지. 보드 제목에 쓰인 글자만 Google Fonts에서 받아 한글을 그립니다
 - `lib/shared-board-server.ts`: 서버(메타데이터, OG 이미지)에서 공유 보드를 읽는 함수와 배포 도메인 계산
 - `app/api/link-preview/route.ts`: 링크 메타데이터 수집 (Vercel 서버 함수로 실행). Google 문서·설문·드라이브, Gemini처럼 로그인이 필요한 서비스는 대표 이미지를 받을 수 없어 화면에서 서비스 표지를 보여 줍니다. og 태그가 없으면 `link rel="image_src"`, JSON-LD, 본문 첫 이미지 순으로 찾고, 그래도 없으면 아이콘을 내려 줍니다. 화면에서는 대표 이미지가 없거나 깨지면 WordPress.com mShots 화면 캡처(`s0.wp.com/mshots`)를, 그것도 안 되면 아이콘 표지를 보여 줍니다. 캡처는 처음 요청 때 "생성 중" 그림이 먼저 오고 잠시 뒤부터 실제 화면이 나옵니다

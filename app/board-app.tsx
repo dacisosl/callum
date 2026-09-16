@@ -882,6 +882,10 @@ export function BoardApp() {
           onCreate={createBoard}
           onRename={(board) => { const title = window.prompt("새 보드 이름", board.title)?.trim(); if (title) updateBoard(board.id, (item) => ({ ...item, title })); }}
           onDelete={(board) => setDeleteTarget({ kind: "board", id: board.id, title: board.title })}
+          onToggleShare={(board, enabled) => {
+            updateBoard(board.id, (item) => ({ ...item, shareEnabled: enabled, shareToken: enabled ? item.shareToken || makeShareToken() : item.shareToken }));
+            toast.success(enabled ? `${board.title} 공유 링크를 만들었습니다.` : `${board.title} 공유를 중지했습니다.`);
+          }}
           onLogout={() => void import("@/lib/supabase-client").then((backend) => backend.logout())}
         />
       ) : (<>

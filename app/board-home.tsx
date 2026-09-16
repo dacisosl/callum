@@ -1,10 +1,16 @@
 "use client";
 
 import {
+  ChevronDown,
+  ChevronUp,
   Clock3,
+  Copy,
   ExternalLink,
   LayoutGrid,
+  Link2,
+  Link2Off,
   LogOut,
+  MessageCircle,
   MoreHorizontal,
   Pencil,
   Plus,
@@ -13,7 +19,8 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -34,7 +41,7 @@ function formatUpdated(value: number) {
   return new Date(value).toLocaleDateString("ko-KR", { year: "numeric", month: "short", day: "numeric" });
 }
 
-export function BoardHome({ boards, demo, showLogout, onOpen, onCreate, onRename, onDelete, onLogout }: {
+export function BoardHome({ boards, demo, showLogout, onOpen, onCreate, onRename, onDelete, onLogout, onToggleShare }: {
   boards: BoardData[];
   demo: boolean;
   showLogout: boolean;
@@ -43,10 +50,28 @@ export function BoardHome({ boards, demo, showLogout, onOpen, onCreate, onRename
   onRename: (board: BoardData) => void;
   onDelete: (board: BoardData) => void;
   onLogout: () => void;
+  onToggleShare: (board: BoardData, enabled: boolean) => void;
 }) {
   const [queryText, setQueryText] = useState("");
+  const [listOpen, setListOpen] = useState(true);
+  // 주소는 브라우저에서만 읽을 수 있어 첫 렌더 뒤에 채웁니다. 그전에는 링크 칸이 비어 있습니다.
+  const [origin, setOrigin] = useState("");
   const needle = queryText.trim().toLowerCase();
   const visible = boards.filter((board) => !needle || board.title.toLowerCase().includes(needle));
+  const sharedBoards = boards.filter((board) => board.shareEnabled && board.shareToken);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setOrigin(`${window.location.origin}${window.location.pathname}`);
+  }, []);
+
+  const shareUrl = (board: BoardData) => (origin ? `${origin}?share=${board.shareToken}` : "");
+  function copyLink(board: BoardData) {
+    const url = shareUrl(board);
+    if (!url) return;
+    void navigator.clipboard.writeText(url);
+    toast.success(`${board.title} 공유 링크를 복사했습니다.`);
+  }
 
   return (
     <>
@@ -65,6 +90,36 @@ export function BoardHome({ boards, demo, showLogout, onOpen, onCreate, onRename
       {demo && <aside className="demo-banner"><span>로컬 데모 모드 · Supabase 설정을 추가하면 계정과 클라우드 저장이 활성화됩니다.</span><a href="https://supabase.com/dashboard" target="_blank" rel="noreferrer">Supabase 열기 <ExternalLink /></a></aside>}
 
       <section className="home" aria-label="보드 목록">
+        {sharedBoards.length > 0 && (
+          <section className="share-list" aria-label="공유 링크 목록">
+            <div className="share-list-head">
+              <Share2 aria-hidden="true" />
+              <strong>공유 중인 보드</strong>
+              <span>{sharedBoards.length}</span>
+              <button className="text-button" onClick={() => setListOpen((open) => !open)} aria-expanded={listOpen}>
+                {listOpen ? <ChevronUp aria-hidden="true" /> : <ChevronDown aria-hidden="true" />}{listOpen ? "접기" : "펼치기"}
+              </button>
+            </div>
+            {listOpen && (
+              <ul>
+                {sharedBoards.map((board) => (
+                  <li key={board.id}>
+                    <button className="share-list-title" onClick={() => onOpen(board.id)}>
+                      <Link2 aria-hidden="true" />
+                      <strong>{board.title}</strong>
+                      {board.commentsEnabled && <em><MessageCircle aria-hidden="true" />댓글</em>}
+                    </button>
+                    <input readOnly value={shareUrl(board)} aria-label={`${board.title} 공유 링크`} onFocus={(event) => event.currentTarget.select()} />
+                    <button className="share-list-copy" onClick={() => copyLink(board)} aria-label={`${board.title} 공유 링크 복사`} title="링크 복사"><Copy aria-hidden="true" /></button>
+                    <a href={shareUrl(board) || undefined} target="_blank" rel="noreferrer" aria-label={`${board.title} 공유 화면 열기`} title="공유 화면 열기"><ExternalLink aria-hidden="true" /></a>
+                    <button onClick={() => onToggleShare(board, false)} aria-label={`${board.title} 공유 중지`} title="공유 중지"><Link2Off aria-hidden="true" /></button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {demo && <p className="share-list-note">로컬 데모 링크는 이 브라우저에서만 열립니다.</p>}
+          </section>
+        )}
         <div className="home-grid">
           {visible.map((board) => {
             const cardCount = board.columns.reduce((sum, column) => sum + column.cards.length, 0);
@@ -86,6 +141,11 @@ export function BoardHome({ boards, demo, showLogout, onOpen, onCreate, onRename
                     <DropdownMenuContent align="end">
                       <DropdownMenuItem onClick={() => onOpen(board.id)}><LayoutGrid />열기</DropdownMenuItem>
                       <DropdownMenuItem onClick={() => onRename(board)}><Pencil />이름 변경</DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      {board.shareEnabled && board.shareToken ? <>
+                        <DropdownMenuItem onClick={() => copyLink(board)}><Copy />공유 링크 복사</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => onToggleShare(board, false)}><Link2Off />공유 중지</DropdownMenuItem>
+                      </> : <DropdownMenuItem onClick={() => onToggleShare(board, true)}><Share2 />공유 링크 만들기</DropdownMenuItem>}
                       <DropdownMenuSeparator />
                       <DropdownMenuItem variant="destructive" onClick={() => onDelete(board)}><Trash2 />보드 삭제</DropdownMenuItem>
                     </DropdownMenuContent>

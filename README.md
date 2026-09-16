@@ -33,6 +33,10 @@ npm run dev
 
 브라우저에서 `http://localhost:3000`을 엽니다. 서버 없이 화면만 확인하려면 `.env.local`에 `NEXT_PUBLIC_DEMO_MODE=1`을 넣으면 브라우저 로컬 데모 모드로 실행됩니다.
 
+## 접속 주소
+
+Vercel은 배포마다 `callum-xxxxxxxx-....vercel.app` 같은 **배포 전용 주소**도 만들지만, 그 주소는 그 배포 시점의 코드에 고정되어 이후 변경이 반영되지 않습니다. 항상 Vercel 대시보드 → 프로젝트 → Domains 에 있는 고정 도메인(`callum-<팀>.vercel.app` 또는 연결한 도메인)으로 접속하고, 공유 링크도 그 도메인에서 만드세요. 공유 링크는 현재 열려 있는 주소를 그대로 씁니다.
+
 ## 화면 구성
 
 - **홈**: 내 보드 전체를 카드로 보여줍니다. 보드 검색, 새 보드, 이름 변경, 삭제를 할 수 있습니다. 공유 중인 보드가 있으면 맨 위에 "공유 중인 보드" 목록이 나타나 링크를 바로 복사하거나 공유를 중지할 수 있고, 보드 메뉴에서 링크를 새로 만들 수도 있습니다.
@@ -106,7 +110,7 @@ npm run build
 ## 프로젝트 구조
 
 - `app/board-app.tsx`: 보드 UI와 상호작용 전체
-- `app/api/link-preview/route.ts`: 링크 메타데이터 수집 (Vercel 서버 함수로 실행). og 태그가 없으면 `link rel="image_src"`, JSON-LD, 본문 첫 이미지 순으로 찾고, 그래도 없으면 아이콘을 내려 줍니다. 화면에서는 대표 이미지가 없거나 깨지면 WordPress.com mShots 화면 캡처(`s0.wp.com/mshots`)를, 그것도 안 되면 아이콘 표지를 보여 줍니다. 캡처는 처음 요청 때 "생성 중" 그림이 먼저 오고 잠시 뒤부터 실제 화면이 나옵니다
+- `app/api/link-preview/route.ts`: 링크 메타데이터 수집 (Vercel 서버 함수로 실행). Google 문서·설문·드라이브, Gemini처럼 로그인이 필요한 서비스는 대표 이미지를 받을 수 없어 화면에서 서비스 표지를 보여 줍니다. og 태그가 없으면 `link rel="image_src"`, JSON-LD, 본문 첫 이미지 순으로 찾고, 그래도 없으면 아이콘을 내려 줍니다. 화면에서는 대표 이미지가 없거나 깨지면 WordPress.com mShots 화면 캡처(`s0.wp.com/mshots`)를, 그것도 안 되면 아이콘 표지를 보여 줍니다. 캡처는 처음 요청 때 "생성 중" 그림이 먼저 오고 잠시 뒤부터 실제 화면이 나옵니다
 - `lib/supabase-client.ts`: 로그인, 보드 저장·조회, 첨부 업로드
 - `lib/supabase-config.ts`: Supabase URL과 anon 키
 - `lib/board-types.ts`: 데이터 형식

@@ -198,6 +198,10 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 /* 대표 이미지가 없는 링크 카드의 대체 표지 */
 .link-cover { aspect-ratio: 2 / 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 7px; background: linear-gradient(140deg, #eef3fb 0%, #e7ecf6 100%); }
 .card-preview.link-cover { display: flex; }
+/* 로그인이 필요한 서비스의 표지: 서비스 색 배경에 이름 */
+.brand-cover { background: linear-gradient(140deg, color-mix(in srgb, var(--brand) 86%, white) 0%, var(--brand) 100%); color: white; }
+.brand-cover-mark { padding: 6px 14px; border-radius: 10px; background: rgba(255,255,255,.18); font-size: 20px; font-weight: 850; letter-spacing: -.01em; }
+.brand-cover > span:last-child { color: rgba(255,255,255,.92); }
 .link-cover img { width: 34px; height: 34px; object-fit: contain; border-radius: 8px; background: white; box-shadow: 0 1px 4px rgba(20,30,38,.12); }
 .link-cover > svg { width: 24px; color: #6b7d96; }
 .link-cover span { max-width: 88%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #5a6875; font-size: 12px; font-weight: 700; }
@@ -399,12 +403,10 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   .demo-banner span { flex: 1; line-height: 1.35; }
   .demo-banner a { font-size: 0; }
   .demo-banner a svg { width: 17px; }
-  .board { height: calc(100vh - 124px); gap: 12px; padding: 4px 12px 22px; scroll-padding-left: 12px; scroll-snap-type: x proximity; }
+  .board { height: calc(100vh - 124px); }
   .demo-banner + div .board { height: calc(100vh - 166px); }
-  .column { width: calc(100vw - 32px); flex-basis: calc(100vw - 32px); max-height: calc(100vh - 157px); scroll-snap-align: start; }
+  .column { max-height: calc(100vh - 157px); }
   .demo-banner + div .column { max-height: calc(100vh - 199px); }
-  .column.is-collapsed { width: 210px; flex-basis: 210px; }
-  .card-controls { opacity: 1; }
   .card-dialog { max-height: 94vh; }
   .viewer-dialog { max-height: 94vh; border-radius: 16px; }
   .viewer-header { padding: 18px 60px 12px 16px; }
@@ -432,6 +434,19 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 @media (max-width: 760px) {
   .board-heading { padding: 0 14px; }
   .board-heading h1 { font-size: 19px; }
+}
+
+/* 칼럼을 화면 폭에 맞추는 것은 터치 기기(휴대폰)에서만 합니다. 데스크톱에서 창을 줄이면
+   칼럼 폭(306px)은 그대로 두고 보드를 가로로, 칼럼 안 카드를 세로로 스크롤해서 봅니다. */
+@media (max-width: 760px) and (pointer: coarse) {
+  .board { gap: 12px; padding: 4px 12px 22px; scroll-padding-left: 12px; scroll-snap-type: x proximity; }
+  .column { width: calc(100vw - 32px); flex-basis: calc(100vw - 32px); scroll-snap-align: start; }
+  .column.is-collapsed { width: 210px; flex-basis: 210px; }
+}
+
+/* 마우스 hover 가 없는 기기에서는 카드 메뉴 버튼을 항상 보여 줍니다. */
+@media (hover: none) {
+  .card-controls { opacity: 1; }
 }
 
 /* 홈 화면: 공유 링크 목록 */

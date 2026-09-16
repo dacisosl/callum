@@ -308,6 +308,32 @@ function screenshotUrl(url: string) {
   return `https://s0.wp.com/mshots/v1/${encodeURIComponent(url)}?w=640`;
 }
 
+// 로그인이 필요해 대표 이미지도 화면 캡처도 얻을 수 없는 서비스. 카카오톡처럼 서비스 표지로 보여 줍니다.
+type KnownService = { label: string; short: string; color: string };
+function knownService(url: string): KnownService | null {
+  let parsed: URL;
+  try { parsed = new URL(url); } catch { return null; }
+  const host = parsed.hostname.toLowerCase().replace(/^www\./, "");
+  const path = parsed.pathname.toLowerCase();
+  if (host === "docs.google.com") {
+    if (path.startsWith("/spreadsheets")) return { label: "Google 스프레드시트", short: "Sheets", color: "#188038" };
+    if (path.startsWith("/document")) return { label: "Google 문서", short: "Docs", color: "#1a73e8" };
+    if (path.startsWith("/presentation")) return { label: "Google 슬라이드", short: "Slides", color: "#e8a600" };
+    if (path.startsWith("/forms")) return { label: "Google 설문지", short: "Forms", color: "#7248b9" };
+    return { label: "Google 문서", short: "Docs", color: "#1a73e8" };
+  }
+  if (host === "forms.gle") return { label: "Google 설문지", short: "Forms", color: "#7248b9" };
+  if (host === "drive.google.com") return { label: "Google 드라이브", short: "Drive", color: "#1a73e8" };
+  if (host === "sites.google.com") return { label: "Google 사이트", short: "Sites", color: "#4285f4" };
+  if (host === "classroom.google.com") return { label: "Google 클래스룸", short: "Class", color: "#188038" };
+  if (host === "gemini.google.com") return { label: "Gemini", short: "Gemini", color: "#4e6fd8" };
+  if (host === "notebooklm.google.com") return { label: "NotebookLM", short: "NLM", color: "#1a73e8" };
+  if (host === "chatgpt.com" || host === "chat.openai.com") return { label: "ChatGPT", short: "GPT", color: "#0f766e" };
+  if (host === "canva.com" && path.startsWith("/design")) return { label: "Canva", short: "Canva", color: "#00c4cc" };
+  if (host === "padlet.com") return { label: "Padlet", short: "Padlet", color: "#e0457b" };
+  return null;
+}
+
 function hostOf(url: string) {
   try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return url; }
 }
@@ -399,7 +425,8 @@ function useLinkImage(link: LinkPreviewData) {
   const chain = useMemo(() => {
     const list: { stage: "image" | "shot" | "icon"; src: string }[] = [];
     if (link.image) list.push({ stage: "image", src: link.image });
-    list.push({ stage: "shot", src: screenshotUrl(link.url) });
+    // 로그인이 필요한 서비스는 캡처해도 로그인 화면만 나오므로 건너뜁니다.
+    if (!knownService(link.url)) list.push({ stage: "shot", src: screenshotUrl(link.url) });
     if (link.icon) list.push({ stage: "icon", src: link.icon });
     return list;
   }, [link.image, link.url, link.icon]);
@@ -417,6 +444,15 @@ function LinkThumb({ link }: { link: LinkPreviewData }) {
       <span className="card-preview">
         <img className="card-image link-image" src={src} alt="" loading="lazy" referrerPolicy="no-referrer" onError={next} />
         <span className="thumb-badge">{host}</span>
+      </span>
+    );
+  }
+  const service = knownService(link.url);
+  if (service) {
+    return (
+      <span className="card-preview link-cover brand-cover" aria-hidden="true" style={{ "--brand": service.color } as CSSProperties}>
+        <span className="brand-cover-mark">{service.short}</span>
+        <span>{service.label}</span>
       </span>
     );
   }
@@ -474,12 +510,14 @@ function CardInner({ card, commentSummary, commentsEnabled, ownerName }: { card:
   const link = card.link;
   const video = getVideoEmbed(link?.url);
   const host = link ? hostOf(link.url) : "";
-  const linkTitle = link && link.title && link.title !== host && link.title !== link.siteName ? link.title : "";
+  const service = link ? knownService(link.url) : null;
+  const siteLabel = link ? (link.siteName && link.siteName !== host ? link.siteName : service?.label || host) : "";
+  const linkTitle = link && link.title && link.title !== host && link.title !== link.siteName && link.title !== siteLabel ? link.title : "";
   const extraAttachments = card.attachments.length - (card.attachments.some((item) => item.kind === "image" || item.kind === "pdf") ? 1 : 0);
   return (
     <>
       <strong className="card-title">{card.title}</strong>
-      {link && <span className="card-link-line">{video ? "동영상" : link.siteName || host}{linkTitle && <> · {linkTitle}</>}</span>}
+      {link && <span className="card-link-line">{video ? "동영상" : siteLabel}{linkTitle && <> · {linkTitle}</>}</span>}
       {card.body && <span className="card-body">{tileBody(card.body)}</span>}
       {extraAttachments > 0 && <span className="attachment-count">첨부 {card.attachments.length}개</span>}
       {commentSummary && (

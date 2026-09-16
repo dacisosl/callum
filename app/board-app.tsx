@@ -323,6 +323,27 @@ function readLocalBoards(): BoardData[] {
   }
 }
 
+// 붙여넣기한 클립보드에서 이미지·PDF 파일을 꺼냅니다. 브라우저와 복사 출처에 따라 files 나 items
+// 중 한쪽에만 들어오므로 둘 다 살핍니다. 이름 없는 스크린샷에는 시각으로 이름을 붙입니다.
+function filesFromClipboard(data: DataTransfer): File[] {
+  const seen = new Set<File>();
+  const list: File[] = [];
+  const push = (file: File | null) => {
+    if (!file || seen.has(file)) return;
+    if (!file.type.startsWith("image/") && file.type !== "application/pdf") return;
+    seen.add(file);
+    if (!file.name || file.name === "image.png" || file.name === "blob") {
+      const ext = file.type === "application/pdf" ? "pdf" : (file.type.split("/")[1] || "png").replace("jpeg", "jpg");
+      list.push(new File([file], `붙여넣은-이미지-${new Date().toISOString().slice(0, 19).replace(/[T:]/g, "-")}.${ext}`, { type: file.type }));
+    } else {
+      list.push(file);
+    }
+  };
+  for (const item of Array.from(data.items ?? [])) if (item.kind === "file") push(item.getAsFile());
+  for (const file of Array.from(data.files ?? [])) push(file);
+  return list;
+}
+
 function fileToDataUrl(file: File) {
   return new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
@@ -981,8 +1002,9 @@ export function BoardApp() {
     toast.success(draft.id ? "카드를 저장했습니다." : "카드를 추가했습니다.");
   }
 
-  async function addFiles(files: FileList | File[]) {
-    if (!draft || !activeBoard) return;
+  // 첨부에 실제로 추가된 파일 수를 돌려줍니다. 거부되거나 실패하면 0입니다.
+  async function addFiles(files: FileList | File[]): Promise<number> {
+    if (!draft || !activeBoard) return 0;
     const accepted = Array.from(files).filter((file) => {
       const allowed = file.type.startsWith("image/") || file.type === "application/pdf";
       if (!allowed || file.type.startsWith("video/")) { toast.error(`${file.name}: 이미지와 PDF만 첨부할 수 있습니다.`); return false; }
@@ -990,7 +1012,7 @@ export function BoardApp() {
       if (file.size > maxSize) { toast.error(`${file.name}: ${supabaseConfigured ? "30MB" : "2MB"} 이하 파일만 첨부할 수 있습니다.`); return false; }
       return true;
     });
-    if (!accepted.length) return;
+    if (!accepted.length) return 0;
     setUploading(true);
     try {
       const uploaded: Attachment[] = [];
@@ -1000,7 +1022,8 @@ export function BoardApp() {
         else uploaded.push({ id, name: file.name, kind: file.type === "application/pdf" ? "pdf" : "image", mimeType: file.type, size: file.size, url: await fileToDataUrl(file) });
       }
       setDraft((current) => current ? { ...current, attachments: [...current.attachments, ...uploaded] } : current);
-    } catch (error) { toast.error(error instanceof Error && error.message ? `업로드 실패: ${error.message}` : "파일을 업로드하지 못했습니다."); }
+      return uploaded.length;
+    } catch (error) { toast.error(error instanceof Error && error.message ? `업로드 실패: ${error.message}` : "파일을 업로드하지 못했습니다."); return 0; }
     finally { setUploading(false); if (fileInputRef.current) fileInputRef.current.value = ""; }
   }
 
@@ -1264,8 +1287,14 @@ export function BoardApp() {
 
       <Dialog open={editorOpen} onOpenChange={(open) => { setEditorOpen(open); if (!open) setDraft(null); }}>
         <DialogContent className="card-dialog" onPaste={(event) => {
-          const image = Array.from(event.clipboardData.files).find((file) => file.type.startsWith("image/"));
-          if (image) { event.preventDefault(); void addFiles([image]); return; }
+          // 편집창 어디서든 Ctrl+V / Cmd+V 로 붙여넣은 이미지·PDF는 첨부로 들어갑니다.
+          const pasted = filesFromClipboard(event.clipboardData);
+          if (pasted.length) {
+            event.preventDefault();
+            if (readOnly) { toast.error(guestPosting ? "공유 링크로 들어온 경우에는 파일을 첨부할 수 없습니다." : "읽기 전용 보드입니다."); return; }
+            void addFiles(pasted).then((count) => { if (count > 0) toast.success(count === 1 ? "클립보드의 이미지를 첨부했습니다." : `클립보드의 파일 ${count}개를 첨부했습니다.`); });
+            return;
+          }
           const text = event.clipboardData.getData("text").trim();
           if (/^https?:\/\//i.test(text) && !linkInput) setLinkInput(text);
         }}>
@@ -1276,7 +1305,7 @@ export function BoardApp() {
             <label>내용<textarea value={draft.body} readOnly={readOnly && !guestPosting} maxLength={3000} onChange={(event) => setDraft({ ...draft, body: event.target.value })} placeholder="메모를 입력하세요" /></label>
             {!readOnly && <section><div className="section-label"><Palette />카드 색</div><div className="tone-swatches" role="radiogroup" aria-label="카드 색">{CARD_TONES.map((tone) => <button key={tone.value} type="button" role="radio" aria-checked={(draft.tone ?? "default") === tone.value} className={`tone-swatch card-tone-${tone.value}${(draft.tone ?? "default") === tone.value ? " is-active" : ""}`} onClick={() => setDraft({ ...draft, tone: tone.value })} title={tone.label} aria-label={tone.label} />)}</div></section>}
             <section className="link-editor"><div className="section-label"><Link2 />링크</div>{(!readOnly || guestPosting) && <div className="link-input-row"><input value={linkInput} onChange={(event) => { const value = event.target.value; setLinkInput(value); if (!value.trim()) setDraft((current) => current ? { ...current, link: undefined } : current); }} placeholder="https://..." /><button className="secondary-button" onClick={() => void fetchLinkPreview()} disabled={linkLoading}>{linkLoading && <LoaderCircle className="spin" />}미리보기</button></div>}{draft.link && <a className="link-preview" href={draft.link.url} target="_blank" rel="noreferrer"><LinkRowImage key={`${draft.link.url}|${draft.link.image ?? ""}`} link={draft.link} /><span><small>{getVideoEmbed(draft.link.url) ? "동영상 · 카드에서 바로 재생" : linkLabel(draft.link)}</small><strong>{draft.link.title}</strong><em>{draft.link.description}</em></span><ExternalLink /></a>}{draft.link && (!readOnly || guestPosting) && <button type="button" className="text-button link-remove" onClick={removeDraftLink}><X />링크 제거</button>}</section>
-            {!guestPosting && <section><div className="section-label"><UploadCloud />첨부</div>{!readOnly && <button className="drop-zone" type="button" onClick={() => fileInputRef.current?.click()} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); void addFiles(event.dataTransfer.files); }}>{uploading ? <LoaderCircle className="spin" /> : <UploadCloud />}<span>이미지 또는 PDF를 선택하거나 끌어 놓으세요.</span><small>{supabaseConfigured ? "파일당 최대 30MB" : "데모 모드 파일당 최대 2MB"} · 동영상 제외</small><input ref={fileInputRef} hidden type="file" multiple accept="image/*,application/pdf" onChange={(event) => event.target.files && void addFiles(event.target.files)} /></button>}
+            {!guestPosting && <section><div className="section-label"><UploadCloud />첨부</div>{!readOnly && <button className="drop-zone" type="button" onClick={() => fileInputRef.current?.click()} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); void addFiles(event.dataTransfer.files); }}>{uploading ? <LoaderCircle className="spin" /> : <UploadCloud />}<span>이미지 또는 PDF를 선택하거나 끌어 놓으세요. 복사한 이미지는 Ctrl+V로 붙여넣어도 됩니다.</span><small>{supabaseConfigured ? "파일당 최대 30MB" : "데모 모드 파일당 최대 2MB"} · 동영상 제외</small><input ref={fileInputRef} hidden type="file" multiple accept="image/*,application/pdf" onChange={(event) => event.target.files && void addFiles(event.target.files)} /></button>}
               {!guestPosting && draft.attachments.length > 0 && <div className="attachment-grid">{draft.attachments.map((attachment) => <article className="attachment-item" key={attachment.id}>{attachment.kind === "image" ? <img src={attachment.url} alt={attachment.name} /> : <iframe title={attachment.name} src={`${attachment.url}#page=1&toolbar=0&navpanes=0`} />}<div><strong>{attachment.name}</strong><span>{attachment.kind === "pdf" ? "PDF" : "이미지"} · {formatBytes(attachment.size)}</span></div><a href={attachment.url} target="_blank" rel="noreferrer" aria-label={`${attachment.name} 열기`}><ExternalLink /></a>{!readOnly && <button onClick={() => deleteDraftAttachment(attachment)} aria-label={`${attachment.name} 삭제`}><X /></button>}</article>)}</div>}
             </section>}
           </div>}

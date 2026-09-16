@@ -1,7 +1,7 @@
 "use client";
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import type { Attachment, BoardData } from "./board-types";
+import type { Attachment, BoardData, CardComment } from "./board-types";
 import { supabaseConfig, supabaseConfigured } from "./supabase-config";
 
 export type AppUser = { uid: string; email: string | null };
@@ -142,5 +142,79 @@ export async function uploadAttachment(
 export async function removeAttachment(path?: string) {
   if (!path) return;
   const { error } = await supabase().storage.from(BUCKET).remove([path]);
+  if (error) throw translate(error);
+}
+
+// ---- 댓글 ----
+
+type CommentRow = {
+  id: string;
+  board_id: string;
+  card_id: string;
+  author_name: string;
+  author_id?: string | null;
+  by_owner?: boolean;
+  body: string;
+  created_at: number | string;
+};
+
+function toComment(row: CommentRow): CardComment {
+  return {
+    id: row.id,
+    boardId: row.board_id,
+    cardId: row.card_id,
+    author: row.author_name,
+    body: row.body,
+    createdAt: Number(row.created_at),
+    byOwner: row.by_owner ?? Boolean(row.author_id),
+  };
+}
+
+// 보드 주인용. RLS가 자기 보드의 댓글만 돌려줍니다.
+export async function loadComments(boardId: string): Promise<CardComment[]> {
+  const { data, error } = await supabase()
+    .from("card_comments")
+    .select("id, board_id, card_id, author_name, author_id, body, created_at")
+    .eq("board_id", boardId)
+    .order("created_at", { ascending: true });
+  if (error) throw translate(error);
+  return ((data ?? []) as CommentRow[]).map(toComment);
+}
+
+// 공유 링크로 보는 사람용. 토큰이 맞고 보드의 댓글 기능이 켜져 있을 때만 결과가 옵니다.
+export async function loadSharedComments(token: string): Promise<CardComment[]> {
+  const { data, error } = await supabase().rpc("get_shared_comments", { token });
+  if (error) throw translate(error);
+  return ((data as CommentRow[] | null) ?? []).map(toComment);
+}
+
+export async function addComment(comment: CardComment, ownerId: string): Promise<CardComment> {
+  const { error } = await supabase().from("card_comments").insert({
+    id: comment.id,
+    board_id: comment.boardId,
+    card_id: comment.cardId,
+    author_name: comment.author,
+    author_id: ownerId,
+    body: comment.body,
+    created_at: comment.createdAt,
+  });
+  if (error) throw translate(error);
+  return { ...comment, byOwner: true };
+}
+
+export async function addSharedComment(token: string, comment: CardComment): Promise<CardComment> {
+  const { data, error } = await supabase().rpc("add_shared_comment", {
+    token,
+    comment_id: comment.id,
+    target_card: comment.cardId,
+    author: comment.author,
+    content: comment.body,
+  });
+  if (error) throw translate(error);
+  return toComment(data as CommentRow);
+}
+
+export async function removeComment(commentId: string) {
+  const { error } = await supabase().from("card_comments").delete().eq("id", commentId);
   if (error) throw translate(error);
 }

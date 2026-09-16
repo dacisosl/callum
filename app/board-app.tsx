@@ -26,7 +26,12 @@ import {
   Link2,
   LoaderCircle,
   LogOut,
+  Maximize2,
+  MessageCircle,
   MoreHorizontal,
+  Palette,
+  Play,
+  Send,
   PanelTopClose,
   PanelTopOpen,
   Pencil,
@@ -41,7 +46,9 @@ import {
   ChevronsUpDown,
   LayoutGrid,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { formatDistanceToNow } from "date-fns";
+import { ko } from "date-fns/locale";
 import { toast } from "sonner";
 import {
   AlertDialog,
@@ -73,16 +80,22 @@ import { Toaster } from "@/components/ui/sonner";
 import { BoardHome } from "./board-home";
 import { cloneStarterBoard } from "@/lib/demo-data";
 import { supabaseConfigured } from "@/lib/supabase-config";
-import type {
-  Attachment,
-  BoardCard,
-  BoardColumn,
-  BoardData,
-  CardDraft,
-  LinkPreviewData,
+import {
+  CARD_TONES,
+  COLUMN_HUES,
+  type Attachment,
+  type BoardCard,
+  type BoardColumn,
+  type BoardData,
+  type CardComment,
+  type CardDraft,
+  type CardTone,
+  type LinkPreviewData,
 } from "@/lib/board-types";
 
 const LOCAL_KEY = "pillar-boards-v3";
+const LOCAL_COMMENTS_KEY = "pillar-comments-v1";
+const COMMENT_NAME_KEY = "pillar-comment-name";
 const MAX_CLOUD_FILE = 15 * 1024 * 1024;
 const MAX_DEMO_FILE = 2 * 1024 * 1024;
 
@@ -129,9 +142,75 @@ function isVideoUrl(value: string) {
   }
 }
 
+type VideoEmbed = { provider: "youtube" | "vimeo"; embedUrl: string; thumbnail?: string };
+
+// "1h2m3s", "90s", "90" 형태의 유튜브 시작 시각을 초로 바꿉니다.
+function parseTimestamp(value: string) {
+  if (/^\d+$/.test(value)) return Number(value);
+  const match = value.match(/^(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?$/);
+  if (!match) return 0;
+  return Number(match[1] ?? 0) * 3600 + Number(match[2] ?? 0) * 60 + Number(match[3] ?? 0);
+}
+
+// 유튜브·비메오 링크면 카드 안에서 바로 재생할 수 있는 embed 주소와 썸네일을 만듭니다.
+function getVideoEmbed(value: string | undefined): VideoEmbed | null {
+  if (!value) return null;
+  let url: URL;
+  try { url = new URL(value); } catch { return null; }
+  const host = url.hostname.toLowerCase().replace(/^(www|m|music)\./, "");
+  if (host === "youtu.be" || host === "youtube.com" || host === "youtube-nocookie.com") {
+    let id = "";
+    if (host === "youtu.be") id = url.pathname.slice(1).split("/")[0] ?? "";
+    else if (url.searchParams.get("v")) id = url.searchParams.get("v") ?? "";
+    else id = url.pathname.match(/^\/(?:embed|shorts|live|v)\/([^/?]+)/)?.[1] ?? "";
+    if (!/^[\w-]{11}$/.test(id)) return null;
+    const params = new URLSearchParams({ rel: "0" });
+    const start = parseTimestamp(url.searchParams.get("t") ?? url.searchParams.get("start") ?? "");
+    if (start > 0) params.set("start", String(start));
+    return { provider: "youtube", embedUrl: `https://www.youtube-nocookie.com/embed/${id}?${params}`, thumbnail: `https://i.ytimg.com/vi/${id}/hqdefault.jpg` };
+  }
+  if (host === "vimeo.com" || host === "player.vimeo.com") {
+    const id = url.pathname.match(/\/(\d{6,})(?:$|[/?])/)?.[1];
+    return id ? { provider: "vimeo", embedUrl: `https://player.vimeo.com/video/${id}` } : null;
+  }
+  return null;
+}
+
+function linkLabel(link: LinkPreviewData) {
+  if (getVideoEmbed(link.url)) return "동영상";
+  if (isVideoUrl(link.url)) return "동영상 링크";
+  return link.siteName || "링크";
+}
+
+function formatRelative(value: number) {
+  try { return formatDistanceToNow(value, { addSuffix: true, locale: ko }); } catch { return ""; }
+}
+
+function formatDate(value: number) {
+  return new Date(value).toLocaleDateString("ko-KR", { year: "numeric", month: "long", day: "numeric" });
+}
+
+function columnHue(column: BoardColumn, index: number) {
+  return column.hue ?? COLUMN_HUES[index % COLUMN_HUES.length].value;
+}
+
+function readLocalComments(): CardComment[] {
+  try {
+    const stored = localStorage.getItem(LOCAL_COMMENTS_KEY);
+    return stored ? (JSON.parse(stored) as CardComment[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeLocalComments(comments: CardComment[]) {
+  localStorage.setItem(LOCAL_COMMENTS_KEY, JSON.stringify(comments));
+}
+
 function typeIcon(card: BoardCard) {
   if (card.attachments.some((item) => item.kind === "pdf")) return <FileText />;
   if (card.attachments.some((item) => item.kind === "image")) return <ImageIcon />;
+  if (getVideoEmbed(card.link?.url)) return <Play />;
   if (card.link) return <Link2 />;
   return <FileText />;
 }
@@ -208,10 +287,39 @@ function AuthGate() {
   );
 }
 
-function SortableCard({ card, readOnly, onOpen, onDuplicate, onDelete }: {
+// 카드 타일 위쪽 미리보기. 이미지 > PDF 첫 페이지 > 동영상 썸네일 > 링크 대표 이미지 순서로 하나만 보여줍니다.
+function CardPreview({ card }: { card: BoardCard }) {
+  const firstImage = card.attachments.find((item) => item.kind === "image");
+  const firstPdf = card.attachments.find((item) => item.kind === "pdf");
+  const video = getVideoEmbed(card.link?.url);
+  if (firstImage) return <img className="card-image" src={firstImage.url} alt="" loading="lazy" />;
+  if (firstPdf) {
+    return (
+      <div className="pdf-preview" aria-hidden="true">
+        <iframe title="" src={`${firstPdf.url}#page=1&toolbar=0&navpanes=0&scrollbar=0&view=FitH`} loading="lazy" tabIndex={-1} />
+        <span className="preview-badge"><FileText />PDF</span>
+      </div>
+    );
+  }
+  if (video) {
+    const thumbnail = video.thumbnail ?? card.link?.image;
+    return (
+      <div className="video-preview" aria-hidden="true">
+        {thumbnail ? <img className="card-image" src={thumbnail} alt="" loading="lazy" onError={(event) => { event.currentTarget.style.visibility = "hidden"; }} /> : <div className="card-image" />}
+        <span className="play-badge"><Play /></span>
+      </div>
+    );
+  }
+  if (card.link?.image) return <img className="card-image link-image" src={card.link.image} alt="" loading="lazy" />;
+  return null;
+}
+
+function SortableCard({ card, readOnly, commentCount, onOpen, onEdit, onDuplicate, onDelete }: {
   card: BoardCard;
   readOnly: boolean;
+  commentCount: number;
   onOpen: () => void;
+  onEdit: () => void;
   onDuplicate: () => void;
   onDelete: () => void;
 }) {
@@ -220,20 +328,20 @@ function SortableCard({ card, readOnly, onOpen, onDuplicate, onDelete }: {
     disabled: readOnly,
     data: { type: "card" },
   });
-  const firstImage = card.attachments.find((item) => item.kind === "image");
-  const firstPdf = card.attachments.find((item) => item.kind === "pdf");
+  const tone = card.tone && card.tone !== "default" ? ` card-tone-${card.tone}` : "";
 
   return (
-    <article ref={setNodeRef} className={`board-card${isDragging ? " is-dragging" : ""}`} style={{ transform: CSS.Transform.toString(transform), transition }}>
-      {firstImage && <img className="card-image" src={firstImage.url} alt="" />}
-      {firstPdf && !firstImage && <div className="pdf-cover" aria-hidden="true"><FileText /><span>PDF</span></div>}
-      {card.link?.image && !firstImage && !firstPdf && <img className="card-image link-image" src={card.link.image} alt="" />}
+    <article ref={setNodeRef} className={`board-card${tone}${isDragging ? " is-dragging" : ""}`} style={{ transform: CSS.Transform.toString(transform), transition }}>
+      <CardPreview card={card} />
 
-      <button className="card-main" onClick={onOpen} aria-label={`${card.title} 열기`}>
+      <button className="card-main" onClick={onOpen} aria-label={`${card.title} 크게 보기`}>
         <span className="card-heading"><span className="card-type" aria-hidden="true">{typeIcon(card)}</span><strong>{card.title}</strong></span>
         {card.body && <span className="card-body">{card.body}</span>}
-        {card.link && <span className="link-source">{isVideoUrl(card.link.url) ? "동영상 링크" : card.link.siteName || "링크"}<ExternalLink aria-hidden="true" /></span>}
-        {card.attachments.length > 0 && <span className="attachment-count">첨부 {card.attachments.length}개</span>}
+        <span className="card-meta">
+          {card.link && <span className="link-source">{linkLabel(card.link)}<ExternalLink aria-hidden="true" /></span>}
+          {card.attachments.length > 0 && <span className="attachment-count">첨부 {card.attachments.length}개</span>}
+          {commentCount > 0 && <span className="comment-count"><MessageCircle aria-hidden="true" />{commentCount}</span>}
+        </span>
       </button>
 
       {!readOnly && (
@@ -242,7 +350,8 @@ function SortableCard({ card, readOnly, onOpen, onDuplicate, onDelete }: {
           <DropdownMenu>
             <DropdownMenuTrigger asChild><button className="card-menu-button" aria-label={`${card.title} 메뉴`}><MoreHorizontal aria-hidden="true" /></button></DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={onOpen}><Pencil />수정</DropdownMenuItem>
+              <DropdownMenuItem onClick={onOpen}><Maximize2 />크게 보기</DropdownMenuItem>
+              <DropdownMenuItem onClick={onEdit}><Pencil />수정</DropdownMenuItem>
               <DropdownMenuItem onClick={onDuplicate}><Copy />복제</DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem variant="destructive" onClick={onDelete}><Trash2 />삭제</DropdownMenuItem>
@@ -254,13 +363,17 @@ function SortableCard({ card, readOnly, onOpen, onDuplicate, onDelete }: {
   );
 }
 
-function SortableColumn({ column, readOnly, queryText, onAddCard, onOpenCard, onRename, onDelete, onToggle, onDuplicateCard, onDeleteCard }: {
+function SortableColumn({ column, index, readOnly, queryText, commentCounts, onAddCard, onOpenCard, onEditCard, onRename, onRecolor, onDelete, onToggle, onDuplicateCard, onDeleteCard }: {
   column: BoardColumn;
+  index: number;
   readOnly: boolean;
   queryText: string;
+  commentCounts: Record<string, number>;
   onAddCard: () => void;
   onOpenCard: (card: BoardCard) => void;
+  onEditCard: (card: BoardCard) => void;
   onRename: () => void;
+  onRecolor: (hue: number) => void;
   onDelete: () => void;
   onToggle: () => void;
   onDuplicateCard: (card: BoardCard) => void;
@@ -269,9 +382,11 @@ function SortableColumn({ column, readOnly, queryText, onAddCard, onOpenCard, on
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: column.id, disabled: readOnly, data: { type: "column" } });
   const needle = queryText.trim().toLowerCase();
   const filteredCards = column.cards.filter((card) => !needle || `${card.title} ${card.body}`.toLowerCase().includes(needle));
+  const hue = columnHue(column, index);
+  const style = { transform: CSS.Transform.toString(transform), transition, "--column-hue": hue } as CSSProperties;
 
   return (
-    <article ref={setNodeRef} className={`column${column.collapsed ? " is-collapsed" : ""}${isDragging ? " is-dragging" : ""}`} style={{ transform: CSS.Transform.toString(transform), transition }}>
+    <article ref={setNodeRef} className={`column${column.collapsed ? " is-collapsed" : ""}${isDragging ? " is-dragging" : ""}`} style={style}>
       <header className="column-header">
         {!readOnly && <button className="column-handle" aria-label={`${column.title} 칼럼 이동`} {...attributes} {...listeners}><GripVertical aria-hidden="true" /></button>}
         <button className="column-title" onClick={onToggle} aria-expanded={!column.collapsed}><strong>{column.title}</strong><span>{column.cards.length}</span></button>
@@ -279,8 +394,16 @@ function SortableColumn({ column, readOnly, queryText, onAddCard, onOpenCard, on
         {!readOnly && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild><button className="quiet-button" aria-label={`${column.title} 메뉴`}><MoreHorizontal aria-hidden="true" /></button></DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
+            <DropdownMenuContent align="end" className="column-menu">
               <DropdownMenuItem onClick={onRename}><Pencil />이름 변경</DropdownMenuItem>
+              <div className="menu-swatches" role="group" aria-label="칼럼 색">
+                <span className="menu-swatches-label"><Palette aria-hidden="true" />색</span>
+                <div>
+                  {COLUMN_HUES.map((option) => (
+                    <button key={option.value} type="button" className={`hue-swatch${option.value === hue ? " is-active" : ""}`} style={{ "--swatch-hue": option.value } as CSSProperties} onClick={() => onRecolor(option.value)} aria-label={option.label} aria-pressed={option.value === hue} title={option.label} />
+                  ))}
+                </div>
+              </div>
               <DropdownMenuSeparator />
               <DropdownMenuItem variant="destructive" onClick={onDelete}><Trash2 />칼럼 삭제</DropdownMenuItem>
             </DropdownMenuContent>
@@ -293,7 +416,7 @@ function SortableColumn({ column, readOnly, queryText, onAddCard, onOpenCard, on
           {!readOnly && <button className="add-card-button" onClick={onAddCard} aria-label={`${column.title}에 카드 추가`} title="카드 추가"><Plus aria-hidden="true" /></button>}
           <SortableContext items={filteredCards.map((card) => card.id)} strategy={verticalListSortingStrategy}>
             <div className="card-list">
-              {filteredCards.map((card) => <SortableCard key={card.id} card={card} readOnly={readOnly} onOpen={() => onOpenCard(card)} onDuplicate={() => onDuplicateCard(card)} onDelete={() => onDeleteCard(card)} />)}
+              {filteredCards.map((card) => <SortableCard key={card.id} card={card} readOnly={readOnly} commentCount={commentCounts[card.id] ?? 0} onOpen={() => onOpenCard(card)} onEdit={() => onEditCard(card)} onDuplicate={() => onDuplicateCard(card)} onDelete={() => onDeleteCard(card)} />)}
               {needle && filteredCards.length === 0 && <p className="column-empty">일치하는 카드가 없습니다.</p>}
               {!needle && filteredCards.length === 0 && <p className="column-empty">{readOnly ? "카드가 없습니다." : "위의 + 를 눌러 첫 카드를 추가하세요."}</p>}
             </div>
@@ -301,6 +424,58 @@ function SortableColumn({ column, readOnly, queryText, onAddCard, onOpenCard, on
         </>
       )}
     </article>
+  );
+}
+
+// 카드 뷰어 아래쪽 댓글 목록과 입력란. 보드의 댓글 기능이 켜져 있을 때만 그려집니다.
+function CommentsPanel({ comments, canDelete, askName, authorName, onAuthorNameChange, onSubmit, onDelete }: {
+  comments: CardComment[];
+  canDelete: boolean;
+  askName: boolean;
+  authorName: string;
+  onAuthorNameChange: (value: string) => void;
+  onSubmit: (body: string) => Promise<boolean>;
+  onDelete: (comment: CardComment) => void;
+}) {
+  const [text, setText] = useState("");
+  const [posting, setPosting] = useState(false);
+
+  async function submit() {
+    if (!text.trim() || posting) return;
+    setPosting(true);
+    try {
+      if (await onSubmit(text)) setText("");
+    } finally {
+      setPosting(false);
+    }
+  }
+
+  return (
+    <section className="comments" aria-label="댓글">
+      <div className="section-label"><MessageCircle />댓글<span className="comments-count">{comments.length}</span></div>
+      {comments.length === 0 ? <p className="comments-empty">아직 댓글이 없습니다. 첫 댓글을 남겨 보세요.</p> : (
+        <ul className="comment-list">
+          {comments.map((comment) => (
+            <li key={comment.id} className={comment.byOwner ? "by-owner" : undefined}>
+              <div className="comment-meta">
+                <strong>{comment.author || "익명"}</strong>
+                {comment.byOwner && <em>작성자</em>}
+                <time dateTime={new Date(comment.createdAt).toISOString()}>{formatRelative(comment.createdAt)}</time>
+                {canDelete && <button type="button" onClick={() => onDelete(comment)} aria-label="댓글 삭제"><Trash2 aria-hidden="true" /></button>}
+              </div>
+              <p>{comment.body}</p>
+            </li>
+          ))}
+        </ul>
+      )}
+      <form className="comment-form" onSubmit={(event) => { event.preventDefault(); void submit(); }}>
+        {askName && <input value={authorName} onChange={(event) => onAuthorNameChange(event.target.value)} placeholder="이름 (비워 두면 익명)" maxLength={40} aria-label="이름" />}
+        <div className="comment-input-row">
+          <textarea value={text} onChange={(event) => setText(event.target.value)} placeholder="댓글을 입력하세요" maxLength={1000} rows={2} aria-label="댓글 내용" onKeyDown={(event) => { if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) { event.preventDefault(); void submit(); } }} />
+          <button className="primary-button comment-submit" type="submit" disabled={posting || !text.trim()} aria-label="댓글 등록">{posting ? <LoaderCircle className="spin" aria-hidden="true" /> : <Send aria-hidden="true" />}</button>
+        </div>
+      </form>
+    </section>
   );
 }
 
@@ -325,10 +500,24 @@ export function BoardApp() {
   const [addingColumn, setAddingColumn] = useState(false);
   const [newColumnTitle, setNewColumnTitle] = useState("");
   const [view, setView] = useState<"home" | "board">("home");
+  const [viewerCardId, setViewerCardId] = useState<string | null>(null);
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+  const [comments, setComments] = useState<CardComment[]>([]);
+  const [commentAuthor, setCommentAuthor] = useState("");
   const boardsRef = useRef(boards);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const activeBoard = boards.find((board) => board.id === activeBoardId) ?? boards[0];
   const readOnly = Boolean(sharedToken);
+  const commentsEnabled = Boolean(activeBoard?.commentsEnabled);
+  // 뷰어에 띄운 카드는 ID로만 기억하고 매 렌더마다 보드에서 다시 찾습니다. 편집 뒤에도 최신 내용이 보입니다.
+  const viewerTarget = viewerCardId && activeBoard ? findCard(activeBoard, viewerCardId) : null;
+  const viewerCard = viewerTarget ? viewerTarget.column.cards[viewerTarget.index] : null;
+  const viewerVideo = getVideoEmbed(viewerCard?.link?.url);
+  const commentCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const comment of comments) counts[comment.cardId] = (counts[comment.cardId] ?? 0) + 1;
+    return counts;
+  }, [comments]);
   // 변경 표시와 저장 상태를 한 곳에서 바꿉니다. 저장 effect는 이 값만 보고 동작합니다.
   const markDirty = useCallback((boardId: string) => { setDirtyBoardId(boardId); setSaveStatus("saving"); }, []);
 
@@ -337,8 +526,28 @@ export function BoardApp() {
     // 주소의 ?share= 값은 브라우저에서만 읽을 수 있어 첫 렌더 뒤 한 번 동기화합니다.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setSharedToken(new URLSearchParams(window.location.search).get("share"));
+    setCommentAuthor(localStorage.getItem(COMMENT_NAME_KEY) ?? "");
     setRouteReady(true);
   }, []);
+
+  // 보드가 바뀌거나 댓글 기능을 켤 때 그 보드의 댓글을 한 번에 읽어 옵니다.
+  const activeBoardIdForComments = activeBoard?.id;
+  useEffect(() => {
+    if (!routeReady || loading || !activeBoardIdForComments) return;
+    let cancelled = false;
+    async function load(): Promise<CardComment[]> {
+      if (!commentsEnabled) return [];
+      if (!supabaseConfigured) return readLocalComments().filter((comment) => comment.boardId === activeBoardIdForComments);
+      const backend = await import("@/lib/supabase-client");
+      if (sharedToken) return backend.loadSharedComments(sharedToken);
+      if (user) return backend.loadComments(activeBoardIdForComments!);
+      return [];
+    }
+    load()
+      .then((list) => { if (!cancelled) setComments(list); })
+      .catch(() => { if (!cancelled) toast.error("댓글을 불러오지 못했습니다."); });
+    return () => { cancelled = true; };
+  }, [activeBoardIdForComments, commentsEnabled, loading, routeReady, sharedToken, user]);
 
   useEffect(() => {
     if (!routeReady) return;
@@ -457,10 +666,16 @@ export function BoardApp() {
 
   function openNewCard(columnId?: string) {
     if (!columnId) return;
-    setDraft({ columnId, title: "", body: "", attachments: [] });
+    setViewerCardId(null);
+    setDraft({ columnId, title: "", body: "", attachments: [], tone: "default" });
     setLinkInput("");
     setEditorOpen(true);
   }
+  // 카드를 크게 보는 뷰어. 공유받은 사람과 주인이 같은 화면을 보고, 주인에게만 편집 버튼이 붙습니다.
+  function openViewer(card: BoardCard) {
+    setViewerCardId(card.id);
+  }
+  // 편집 모달. 뷰어가 열린 상태에서 부르면 뷰어는 잠시 숨겨지고 편집을 마치면 다시 나타납니다.
   function openCard(columnId: string, card: BoardCard) {
     setDraft({ ...structuredClone(card), columnId });
     setLinkInput(card.link?.url ?? "");
@@ -471,8 +686,9 @@ export function BoardApp() {
     const now = Date.now();
     updateActiveBoard((board) => ({ ...board, columns: board.columns.map((column) => {
       if (column.id !== draft.columnId) return column;
-      if (draft.id) return { ...column, cards: column.cards.map((card) => card.id === draft.id ? { ...card, title: draft.title.trim(), body: draft.body.trim(), attachments: draft.attachments, link: draft.link, updatedAt: now } : card) };
-      return { ...column, cards: [{ id: makeId("card"), title: draft.title.trim(), body: draft.body.trim(), attachments: draft.attachments, link: draft.link, createdAt: now, updatedAt: now }, ...column.cards] };
+      const tone: CardTone | undefined = draft.tone && draft.tone !== "default" ? draft.tone : undefined;
+      if (draft.id) return { ...column, cards: column.cards.map((card) => card.id === draft.id ? { ...card, title: draft.title.trim(), body: draft.body.trim(), attachments: draft.attachments, link: draft.link, tone, updatedAt: now } : card) };
+      return { ...column, cards: [{ id: makeId("card"), title: draft.title.trim(), body: draft.body.trim(), attachments: draft.attachments, link: draft.link, tone, createdAt: now, updatedAt: now }, ...column.cards] };
     }) }));
     setEditorOpen(false);
     setDraft(null);
@@ -526,6 +742,43 @@ export function BoardApp() {
   function duplicateCard(columnId: string, card: BoardCard) {
     updateActiveBoard((board) => ({ ...board, columns: board.columns.map((column) => column.id === columnId ? { ...column, cards: [...column.cards, { ...structuredClone(card), id: makeId("card"), title: `${card.title} 복사본`, createdAt: Date.now(), updatedAt: Date.now() }] } : column) }));
     toast.success("카드를 복제했습니다.");
+  }
+  async function submitComment(cardId: string, body: string) {
+    if (!activeBoard) return false;
+    const text = body.trim();
+    if (!text) return false;
+    const author = readOnly ? commentAuthor.trim().slice(0, 40) || "익명" : (user?.email?.split("@")[0] || "보드 주인");
+    const comment: CardComment = { id: makeId("comment"), boardId: activeBoard.id, cardId, author, body: text.slice(0, 1000), createdAt: Date.now(), byOwner: !readOnly };
+    try {
+      let saved = comment;
+      if (supabaseConfigured) {
+        const backend = await import("@/lib/supabase-client");
+        if (sharedToken) saved = await backend.addSharedComment(sharedToken, comment);
+        else if (user) saved = await backend.addComment(comment, user.uid);
+        else throw new Error("로그인이 필요합니다.");
+      } else {
+        writeLocalComments([...readLocalComments(), comment]);
+      }
+      setComments((current) => [...current, saved]);
+      if (readOnly) localStorage.setItem(COMMENT_NAME_KEY, commentAuthor.trim().slice(0, 40));
+      return true;
+    } catch (error) {
+      toast.error(error instanceof Error && error.message ? error.message : "댓글을 저장하지 못했습니다.");
+      return false;
+    }
+  }
+  async function deleteComment(comment: CardComment) {
+    try {
+      if (supabaseConfigured) await (await import("@/lib/supabase-client")).removeComment(comment.id);
+      else writeLocalComments(readLocalComments().filter((item) => item.id !== comment.id));
+      setComments((current) => current.filter((item) => item.id !== comment.id));
+    } catch {
+      toast.error("댓글을 삭제하지 못했습니다.");
+    }
+  }
+  function setCommentsEnabled(enabled: boolean) {
+    updateActiveBoard((board) => ({ ...board, commentsEnabled: enabled }));
+    toast.success(enabled ? "댓글 기능을 켰습니다." : "댓글 기능을 껐습니다.");
   }
   function addColumn() {
     if (!newColumnTitle.trim()) return;
@@ -626,6 +879,7 @@ export function BoardApp() {
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={createBoard}><Plus />새 보드</DropdownMenuItem>
               <DropdownMenuItem onClick={() => { const title = window.prompt("새 보드 이름", activeBoard.title)?.trim(); if (title) updateActiveBoard((board) => ({ ...board, title })); }}><Pencil />이름 변경</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setCommentsEnabled(!commentsEnabled)}><MessageCircle />{commentsEnabled ? "댓글 끄기" : "댓글 켜기"}</DropdownMenuItem>
               <DropdownMenuItem variant="destructive" onClick={() => setDeleteTarget({ kind: "board", id: activeBoard.id, title: activeBoard.title })}><Trash2 />보드 삭제</DropdownMenuItem>
             </DropdownMenuContent>}
           </DropdownMenu>
@@ -645,10 +899,10 @@ export function BoardApp() {
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
         <SortableContext items={activeBoard.columns.map((column) => column.id)}>
           <section className="board" aria-label={`${activeBoard.title} 보드`}>
-            {activeBoard.columns.map((column) => <SortableColumn key={column.id} column={column} readOnly={readOnly} queryText={queryText} onAddCard={() => openNewCard(column.id)} onOpenCard={(card) => openCard(column.id, card)} onRename={() => {
+            {activeBoard.columns.map((column, index) => <SortableColumn key={column.id} column={column} index={index} readOnly={readOnly} queryText={queryText} commentCounts={commentCounts} onAddCard={() => openNewCard(column.id)} onOpenCard={openViewer} onEditCard={(card) => openCard(column.id, card)} onRename={() => {
               const title = window.prompt("새 칼럼 이름", column.title)?.trim();
               if (title) updateActiveBoard((board) => ({ ...board, columns: board.columns.map((item) => item.id === column.id ? { ...item, title } : item) }));
-            }} onDelete={() => setDeleteTarget({ kind: "column", id: column.id, title: column.title })} onToggle={() => updateActiveBoard((board) => ({ ...board, columns: board.columns.map((item) => item.id === column.id ? { ...item, collapsed: !item.collapsed } : item) }))} onDuplicateCard={(card) => duplicateCard(column.id, card)} onDeleteCard={(card) => setDeleteTarget({ kind: "card", id: card.id, columnId: column.id, title: card.title })} />)}
+            }} onRecolor={(hue) => updateActiveBoard((board) => ({ ...board, columns: board.columns.map((item) => item.id === column.id ? { ...item, hue } : item) }))} onDelete={() => setDeleteTarget({ kind: "column", id: column.id, title: column.title })} onToggle={() => updateActiveBoard((board) => ({ ...board, columns: board.columns.map((item) => item.id === column.id ? { ...item, collapsed: !item.collapsed } : item) }))} onDuplicateCard={(card) => duplicateCard(column.id, card)} onDeleteCard={(card) => setDeleteTarget({ kind: "card", id: card.id, columnId: column.id, title: card.title })} />)}
             {!readOnly && (addingColumn ? <form className="new-column-form" onSubmit={(event) => { event.preventDefault(); addColumn(); }}><input autoFocus value={newColumnTitle} onChange={(event) => setNewColumnTitle(event.target.value)} placeholder="칼럼 이름" /><div><button className="primary-button" type="submit">추가</button><button className="secondary-button" type="button" onClick={() => setAddingColumn(false)}>취소</button></div></form> : <button className="add-column-button" onClick={() => setAddingColumn(true)}><Plus aria-hidden="true" />칼럼 추가</button>)}
           </section>
         </SortableContext>
@@ -664,11 +918,12 @@ export function BoardApp() {
           const text = event.clipboardData.getData("text").trim();
           if (/^https?:\/\//i.test(text) && !linkInput) setLinkInput(text);
         }}>
-          <DialogHeader><DialogTitle>{draft?.id ? (readOnly ? "카드 보기" : "카드 수정") : "새 카드"}</DialogTitle><DialogDescription>{readOnly ? "공유된 카드의 내용입니다." : "글, 링크, 이미지, PDF를 한 카드에 담을 수 있습니다."}</DialogDescription></DialogHeader>
+          <DialogHeader><DialogTitle>{draft?.id ? "카드 수정" : "새 카드"}</DialogTitle><DialogDescription>{readOnly ? "공유된 카드의 내용입니다." : "글, 링크, 이미지, PDF를 한 카드에 담을 수 있습니다."}</DialogDescription></DialogHeader>
           {draft && <div className="editor-body">
             <label>제목<input value={draft.title} readOnly={readOnly} maxLength={120} onChange={(event) => setDraft({ ...draft, title: event.target.value })} placeholder="무엇을 모아둘까요?" /></label>
             <label>내용<textarea value={draft.body} readOnly={readOnly} maxLength={3000} onChange={(event) => setDraft({ ...draft, body: event.target.value })} placeholder="메모를 입력하세요" /></label>
-            <section className="link-editor"><div className="section-label"><Link2 />링크</div>{!readOnly && <div className="link-input-row"><input value={linkInput} onChange={(event) => setLinkInput(event.target.value)} placeholder="https://..." /><button className="secondary-button" onClick={() => void fetchLinkPreview()} disabled={linkLoading}>{linkLoading && <LoaderCircle className="spin" />}미리보기</button></div>}{draft.link && <a className="link-preview" href={draft.link.url} target="_blank" rel="noreferrer">{draft.link.image && <img src={draft.link.image} alt="" />}<span><small>{isVideoUrl(draft.link.url) ? "동영상 링크 · 재생 없음" : draft.link.siteName}</small><strong>{draft.link.title}</strong><em>{draft.link.description}</em></span><ExternalLink /></a>}</section>
+            {!readOnly && <section><div className="section-label"><Palette />카드 색</div><div className="tone-swatches" role="radiogroup" aria-label="카드 색">{CARD_TONES.map((tone) => <button key={tone.value} type="button" role="radio" aria-checked={(draft.tone ?? "default") === tone.value} className={`tone-swatch card-tone-${tone.value}${(draft.tone ?? "default") === tone.value ? " is-active" : ""}`} onClick={() => setDraft({ ...draft, tone: tone.value })} title={tone.label} aria-label={tone.label} />)}</div></section>}
+            <section className="link-editor"><div className="section-label"><Link2 />링크</div>{!readOnly && <div className="link-input-row"><input value={linkInput} onChange={(event) => setLinkInput(event.target.value)} placeholder="https://..." /><button className="secondary-button" onClick={() => void fetchLinkPreview()} disabled={linkLoading}>{linkLoading && <LoaderCircle className="spin" />}미리보기</button></div>}{draft.link && <a className="link-preview" href={draft.link.url} target="_blank" rel="noreferrer">{draft.link.image && <img src={draft.link.image} alt="" />}<span><small>{getVideoEmbed(draft.link.url) ? "동영상 · 카드에서 바로 재생" : linkLabel(draft.link)}</small><strong>{draft.link.title}</strong><em>{draft.link.description}</em></span><ExternalLink /></a>}</section>
             <section><div className="section-label"><UploadCloud />첨부</div>{!readOnly && <button className="drop-zone" type="button" onClick={() => fileInputRef.current?.click()} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); void addFiles(event.dataTransfer.files); }}>{uploading ? <LoaderCircle className="spin" /> : <UploadCloud />}<span>이미지 또는 PDF를 선택하거나 끌어 놓으세요.</span><small>{supabaseConfigured ? "파일당 최대 15MB" : "데모 모드 파일당 최대 2MB"} · 동영상 제외</small><input ref={fileInputRef} hidden type="file" multiple accept="image/*,application/pdf" onChange={(event) => event.target.files && void addFiles(event.target.files)} /></button>}
               {draft.attachments.length > 0 && <div className="attachment-grid">{draft.attachments.map((attachment) => <article className="attachment-item" key={attachment.id}>{attachment.kind === "image" ? <img src={attachment.url} alt={attachment.name} /> : <iframe title={attachment.name} src={`${attachment.url}#page=1&toolbar=0&navpanes=0`} />}<div><strong>{attachment.name}</strong><span>{attachment.kind === "pdf" ? "PDF" : "이미지"} · {formatBytes(attachment.size)}</span></div><a href={attachment.url} target="_blank" rel="noreferrer" aria-label={`${attachment.name} 열기`}><ExternalLink /></a>{!readOnly && <button onClick={() => deleteDraftAttachment(attachment)} aria-label={`${attachment.name} 삭제`}><X /></button>}</article>)}</div>}
             </section>
@@ -677,8 +932,46 @@ export function BoardApp() {
         </DialogContent>
       </Dialog>
 
+      <Dialog open={Boolean(viewerCard) && !editorOpen} onOpenChange={(open) => { if (!open) setViewerCardId(null); }}>
+        <DialogContent className={`viewer-dialog${viewerCard?.tone && viewerCard.tone !== "default" ? ` card-tone-${viewerCard.tone}` : ""}`}>
+          {viewerCard && viewerTarget && <>
+            <DialogHeader className="viewer-header">
+              <span className="viewer-kicker"><span className="card-type" aria-hidden="true">{typeIcon(viewerCard)}</span>{viewerTarget.column.title} · {formatDate(viewerCard.updatedAt)}</span>
+              <DialogTitle className="viewer-title">{viewerCard.title}</DialogTitle>
+              <DialogDescription className="sr-only">카드 내용을 크게 봅니다.</DialogDescription>
+              {!readOnly && <button className="secondary-button viewer-edit" onClick={() => openCard(viewerTarget.column.id, viewerCard)}><Pencil aria-hidden="true" />편집</button>}
+            </DialogHeader>
+            <div className="viewer-body">
+              {viewerCard.body && <p className="viewer-text">{viewerCard.body}</p>}
+              {viewerVideo && <div className="viewer-video"><iframe src={viewerVideo.embedUrl} title={viewerCard.link?.title || "동영상"} allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen" allowFullScreen referrerPolicy="strict-origin-when-cross-origin" /></div>}
+              {viewerCard.link && <a className={`link-preview viewer-link${viewerVideo ? " is-compact" : ""}`} href={viewerCard.link.url} target="_blank" rel="noreferrer">{viewerCard.link.image && !viewerVideo && <img src={viewerCard.link.image} alt="" />}<span><small>{linkLabel(viewerCard.link)}</small><strong>{viewerCard.link.title}</strong>{viewerCard.link.description && <em>{viewerCard.link.description}</em>}</span><ExternalLink aria-hidden="true" /></a>}
+              {viewerCard.attachments.map((attachment) => attachment.kind === "image" ? (
+                <figure className="viewer-image" key={attachment.id}>
+                  <button type="button" onClick={() => setLightboxUrl(attachment.url)} aria-label={`${attachment.name} 전체 화면으로 보기`}><img src={attachment.url} alt={attachment.name} /><span className="zoom-hint"><Maximize2 aria-hidden="true" /></span></button>
+                  <figcaption><ImageIcon aria-hidden="true" /><span>{attachment.name}</span><small>{formatBytes(attachment.size)}</small><a href={attachment.url} target="_blank" rel="noreferrer">원본 열기<ExternalLink aria-hidden="true" /></a></figcaption>
+                </figure>
+              ) : (
+                <figure className="viewer-pdf" key={attachment.id}>
+                  <iframe src={`${attachment.url}#toolbar=1&navpanes=0&view=FitH`} title={attachment.name} />
+                  <figcaption><FileText aria-hidden="true" /><span>{attachment.name}</span><small>PDF · {formatBytes(attachment.size)}</small><a href={attachment.url} target="_blank" rel="noreferrer">새 탭에서 열기<ExternalLink aria-hidden="true" /></a></figcaption>
+                </figure>
+              ))}
+              {commentsEnabled && <CommentsPanel comments={comments.filter((comment) => comment.cardId === viewerCard.id)} canDelete={!readOnly} askName={readOnly} authorName={commentAuthor} onAuthorNameChange={setCommentAuthor} onSubmit={(body) => submitComment(viewerCard.id, body)} onDelete={(comment) => void deleteComment(comment)} />}
+            </div>
+          </>}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={Boolean(lightboxUrl)} onOpenChange={(open) => { if (!open) setLightboxUrl(null); }}>
+        <DialogContent className="lightbox-dialog">
+          <DialogTitle className="sr-only">이미지 전체 화면</DialogTitle>
+          <DialogDescription className="sr-only">닫으려면 이미지를 누르거나 Esc 키를 누르세요.</DialogDescription>
+          {lightboxUrl && <img src={lightboxUrl} alt="" onClick={() => setLightboxUrl(null)} />}
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={shareOpen} onOpenChange={setShareOpen}>
-        <DialogContent className="share-dialog"><DialogHeader><DialogTitle>보드 공유</DialogTitle><DialogDescription>링크를 가진 사람은 이 보드를 읽을 수 있습니다.</DialogDescription></DialogHeader><div className="share-switch-row"><div><strong>읽기 전용 링크</strong><span>{activeBoard.shareEnabled ? "공유 중" : "비공개"}</span></div><Switch checked={activeBoard.shareEnabled} onCheckedChange={setSharing} aria-label="읽기 전용 공유" /></div>{activeBoard.shareEnabled && <><div className="share-url"><input readOnly value={shareUrl} /><button onClick={() => { void navigator.clipboard.writeText(shareUrl); toast.success("공유 링크를 복사했습니다."); }}><Copy />복사</button></div><button className="text-button" onClick={regenerateShareLink}><RotateCcw />기존 링크를 끊고 새 링크 만들기</button>{!supabaseConfigured && <p className="share-warning">로컬 데모 링크는 이 브라우저에서만 확인할 수 있습니다.</p>}</>}</DialogContent>
+        <DialogContent className="share-dialog"><DialogHeader><DialogTitle>보드 공유</DialogTitle><DialogDescription>링크를 가진 사람은 이 보드를 읽을 수 있습니다.</DialogDescription></DialogHeader><div className="share-switch-row"><div><strong>읽기 전용 링크</strong><span>{activeBoard.shareEnabled ? "공유 중" : "비공개"}</span></div><Switch checked={activeBoard.shareEnabled} onCheckedChange={setSharing} aria-label="읽기 전용 공유" /></div><div className="share-switch-row"><div><strong>댓글</strong><span>{commentsEnabled ? "카드마다 댓글을 남길 수 있습니다" : "꺼짐 · 카드 뷰어에 댓글란이 보이지 않습니다"}</span></div><Switch checked={commentsEnabled} onCheckedChange={setCommentsEnabled} aria-label="댓글 허용" /></div>{activeBoard.shareEnabled && <><div className="share-url"><input readOnly value={shareUrl} /><button onClick={() => { void navigator.clipboard.writeText(shareUrl); toast.success("공유 링크를 복사했습니다."); }}><Copy />복사</button></div><button className="text-button" onClick={regenerateShareLink}><RotateCcw />기존 링크를 끊고 새 링크 만들기</button>{!supabaseConfigured && <p className="share-warning">로컬 데모 링크는 이 브라우저에서만 확인할 수 있습니다.</p>}</>}</DialogContent>
       </Dialog>
 
       <AlertDialog open={Boolean(deleteTarget)} onOpenChange={(open) => !open && setDeleteTarget(null)}>

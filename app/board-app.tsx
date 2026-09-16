@@ -6,7 +6,6 @@ import {
   DragOverlay,
   KeyboardSensor,
   PointerSensor,
-  pointerWithin,
   rectIntersection,
   useSensor,
   useSensors,
@@ -266,35 +265,46 @@ function orderSignature(board: BoardData) {
 }
 
 // 드롭 대상 판정. 칼럼과 카드가 한꺼번에 "가장 가까운 중심"을 다투면 칼럼 중심이 카드 사이에 끼어들어
-// 아래로 내릴 때 자리를 잘못 잡습니다. 그래서 먼저 포인터가 든 칼럼을 고르고, 그 칼럼 안에서만 카드를 고릅니다.
+// 아래로 내릴 때 자리를 잘못 잡습니다. 그래서 칼럼을 먼저 정하고, 그 칼럼 안에서 자리를 셉니다.
 const boardCollision: CollisionDetection = (args) => {
   const { active, droppableContainers, pointerCoordinates, collisionRect } = args;
   const columns = droppableContainers.filter((container) => container.data.current?.type === "column");
   if (active.data.current?.type === "column") return closestCenter({ ...args, droppableContainers: columns });
 
-  let columnHits = pointerCoordinates ? pointerWithin({ ...args, droppableContainers: columns }) : [];
-  if (!columnHits.length) columnHits = rectIntersection({ ...args, droppableContainers: columns });
-  if (!columnHits.length) return [];
-  const columnId = columnHits[0].id;
-  // 끌고 있는 카드의 빈자리도 후보에 넣습니다. 그 위에 있으면 "제자리"로 판정되어 순서가 흔들리지 않습니다.
-  const cards = droppableContainers.filter(
-    (container) => container.data.current?.type === "card" && container.data.current?.columnId === columnId,
-  );
-  if (!cards.length) return columnHits;
-
+  const x = pointerCoordinates?.x ?? collisionRect.left + collisionRect.width / 2;
   const y = pointerCoordinates?.y ?? collisionRect.top + collisionRect.height / 2;
-  const rects = cards.map((container) => ({ id: container.id, rect: container.rect.current })).filter((item) => item.rect);
-  if (!rects.length) return columnHits;
-  // 마지막 카드보다 아래를 가리키면 칼럼 자체를 돌려 맨 끝에 붙입니다.
-  const bottom = Math.max(...rects.map((item) => item.rect!.top + item.rect!.height));
-  if (y > bottom) return columnHits;
-  // 그 외에는 손가락(포인터) 높이에 가장 가까운 카드를 고릅니다.
-  const nearest = rects.reduce((best, item) => {
-    const distance = Math.abs(item.rect!.top + item.rect!.height / 2 - y);
-    return distance < best.distance ? { id: item.id, distance } : best;
-  }, { id: rects[0].id, distance: Number.POSITIVE_INFINITY });
-  return [{ id: nearest.id, data: { droppableContainer: cards.find((container) => container.id === nearest.id), value: nearest.distance } }];
+  const inRange = (value: number, start: number, size: number) => value >= start && value <= start + size;
+
+  // 1) 칼럼 고르기: 포인터가 든 칼럼 → 가로 위치만 맞는 칼럼(칼럼 아래 빈 곳에 놓아도 붙도록) → 복사본이 겹치는 칼럼
+  let column = columns.find((container) => { const rect = container.rect.current; return rect && inRange(x, rect.left, rect.width) && inRange(y, rect.top, rect.height); })
+    ?? columns.find((container) => { const rect = container.rect.current; return rect && inRange(x, rect.left, rect.width); });
+  if (!column) {
+    const hits = rectIntersection({ ...args, droppableContainers: columns });
+    column = hits.length ? columns.find((container) => container.id === hits[0].id) : undefined;
+  }
+  if (!column) return [];
+  const columnHit = [{ id: column.id, data: { droppableContainer: column, value: 0 } }];
+
+  // 2) 그 칼럼의 카드를 위에서부터 늘어놓고, 포인터보다 중심이 위에 있는 카드 수를 셉니다. 그 수가 들어갈 자리입니다.
+  //    끌고 있는 카드의 빈자리도 목록에 있으므로, 그 자리가 나오면 "제자리"로 판정되어 흔들리지 않습니다.
+  const targetColumnId = column.id;
+  const items = droppableContainers
+    .filter((container) => container.data.current?.type === "card" && container.data.current?.columnId === targetColumnId && container.rect.current)
+    .sort((a, b) => a.rect.current!.top - b.rect.current!.top);
+  if (!items.length) return columnHit;
+  const above = items.filter((container) => container.id !== active.id && container.rect.current!.top + container.rect.current!.height / 2 < y).length;
+  const target = items[above];
+  return target ? [{ id: target.id, data: { droppableContainer: target, value: 0 } }] : columnHit;
 };
+
+// 사이트 대표 이미지가 없거나 불러올 수 없을 때 쓰는 화면 캡처 주소(WordPress.com mShots)
+function screenshotUrl(url: string) {
+  return `https://s0.wp.com/mshots/v1/${encodeURIComponent(url)}?w=640`;
+}
+
+function hostOf(url: string) {
+  try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return url; }
+}
 
 function readLocalBoards(): BoardData[] {
   try {
@@ -356,6 +366,22 @@ function AuthGate() {
   );
 }
 
+// 링크 썸네일. 대표 이미지가 없거나 깨지면 화면 캡처를, 그것도 안 되면 아이콘 표지를 보여 줍니다.
+// 다른 사이트 이미지는 referrer를 보내지 않아야 핫링크 차단에 걸리지 않습니다.
+function LinkThumb({ link }: { link: LinkPreviewData }) {
+  const [stage, setStage] = useState(link.image ? 0 : 1);
+  const src = stage === 0 ? link.image : stage === 1 ? screenshotUrl(link.url) : undefined;
+  if (!src) {
+    return (
+      <div className="link-cover" aria-hidden="true">
+        {link.icon ? <img src={link.icon} alt="" loading="lazy" referrerPolicy="no-referrer" onError={(event) => { event.currentTarget.style.display = "none"; }} /> : <Link2 />}
+        <span>{link.siteName || hostOf(link.url)}</span>
+      </div>
+    );
+  }
+  return <img className="card-image link-image" src={src} alt="" loading="lazy" referrerPolicy="no-referrer" onError={() => setStage((current) => current + 1)} />;
+}
+
 // 카드 타일 위쪽 미리보기. 이미지 > PDF 첫 페이지 > 동영상 썸네일 > 링크 대표 이미지 순서로 하나만 보여줍니다.
 function CardPreview({ card }: { card: BoardCard }) {
   const firstImage = card.attachments.find((item) => item.kind === "image");
@@ -379,15 +405,7 @@ function CardPreview({ card }: { card: BoardCard }) {
       </div>
     );
   }
-  if (card.link?.image) return <img className="card-image link-image" src={card.link.image} alt="" loading="lazy" />;
-  if (card.link) {
-    return (
-      <div className="link-cover" aria-hidden="true">
-        {card.link.icon ? <img src={card.link.icon} alt="" loading="lazy" onError={(event) => { event.currentTarget.style.display = "none"; }} /> : <Link2 />}
-        <span>{card.link.siteName || new URL(card.link.url).hostname.replace(/^www\./, "")}</span>
-      </div>
-    );
-  }
+  if (card.link) return <LinkThumb key={`${card.link.url}|${card.link.image ?? ""}`} link={card.link} />;
   return null;
 }
 
@@ -780,12 +798,7 @@ export function BoardApp() {
       const overCard = findCard(board, String(over.id));
       const targetColumn = overCard ? overCard.column : board.columns.find((column) => column.id === over.id);
       if (!targetColumn || targetColumn.id === source.column.id) return board;
-      let toIndex = targetColumn.cards.length;
-      if (overCard) {
-        const translated = active.rect.current.translated;
-        const below = translated ? translated.top > over.rect.top + over.rect.height : false;
-        toIndex = overCard.index + (below ? 1 : 0);
-      }
+      const toIndex = overCard ? overCard.index : targetColumn.cards.length;
       return moveCard(board, source.column.cards[source.index].id, targetColumn.id, toIndex);
     }));
   }
@@ -837,9 +850,7 @@ export function BoardApp() {
     if (overCard && overCard.column.id === source.column.id) {
       if (overCard.index !== source.index) next = moveCard(board, String(active.id), targetColumn.id, overCard.index);
     } else if (overCard) {
-      const translated = active.rect.current.translated;
-      const below = translated ? translated.top > over.rect.top + over.rect.height : false;
-      next = moveCard(board, String(active.id), targetColumn.id, overCard.index + (below ? 1 : 0));
+      next = moveCard(board, String(active.id), targetColumn.id, overCard.index);
     } else if (targetColumn.id !== source.column.id || source.index !== targetColumn.cards.length - 1) {
       next = moveCard(board, String(active.id), targetColumn.id, targetColumn.cards.length);
     }
@@ -1138,7 +1149,6 @@ export function BoardApp() {
         )}
       </DndContext>
       </div>
-      {(!readOnly || guestPosting) && <button className="primary-button fab" onClick={() => openNewCard(activeBoard.columns[0]?.id)} disabled={!activeBoard.columns.length}><Plus aria-hidden="true" />카드 추가</button>}
       </>)}
 
       <Dialog open={editorOpen} onOpenChange={(open) => { setEditorOpen(open); if (!open) setDraft(null); }}>
@@ -1154,7 +1164,7 @@ export function BoardApp() {
             <label>제목<input value={draft.title} readOnly={readOnly && !guestPosting} maxLength={120} onChange={(event) => setDraft({ ...draft, title: event.target.value })} placeholder="무엇을 모아둘까요?" /></label>
             <label>내용<textarea value={draft.body} readOnly={readOnly && !guestPosting} maxLength={3000} onChange={(event) => setDraft({ ...draft, body: event.target.value })} placeholder="메모를 입력하세요" /></label>
             {!readOnly && <section><div className="section-label"><Palette />카드 색</div><div className="tone-swatches" role="radiogroup" aria-label="카드 색">{CARD_TONES.map((tone) => <button key={tone.value} type="button" role="radio" aria-checked={(draft.tone ?? "default") === tone.value} className={`tone-swatch card-tone-${tone.value}${(draft.tone ?? "default") === tone.value ? " is-active" : ""}`} onClick={() => setDraft({ ...draft, tone: tone.value })} title={tone.label} aria-label={tone.label} />)}</div></section>}
-            <section className="link-editor"><div className="section-label"><Link2 />링크</div>{(!readOnly || guestPosting) && <div className="link-input-row"><input value={linkInput} onChange={(event) => setLinkInput(event.target.value)} placeholder="https://..." /><button className="secondary-button" onClick={() => void fetchLinkPreview()} disabled={linkLoading}>{linkLoading && <LoaderCircle className="spin" />}미리보기</button></div>}{draft.link && <a className="link-preview" href={draft.link.url} target="_blank" rel="noreferrer">{(draft.link.image || draft.link.icon) && <img className={draft.link.image ? undefined : "is-icon"} src={draft.link.image || draft.link.icon} alt="" />}<span><small>{getVideoEmbed(draft.link.url) ? "동영상 · 카드에서 바로 재생" : linkLabel(draft.link)}</small><strong>{draft.link.title}</strong><em>{draft.link.description}</em></span><ExternalLink /></a>}</section>
+            <section className="link-editor"><div className="section-label"><Link2 />링크</div>{(!readOnly || guestPosting) && <div className="link-input-row"><input value={linkInput} onChange={(event) => setLinkInput(event.target.value)} placeholder="https://..." /><button className="secondary-button" onClick={() => void fetchLinkPreview()} disabled={linkLoading}>{linkLoading && <LoaderCircle className="spin" />}미리보기</button></div>}{draft.link && <a className="link-preview" href={draft.link.url} target="_blank" rel="noreferrer">{(draft.link.image || draft.link.icon) && <img className={draft.link.image ? undefined : "is-icon"} src={draft.link.image || draft.link.icon} alt="" referrerPolicy="no-referrer" />}<span><small>{getVideoEmbed(draft.link.url) ? "동영상 · 카드에서 바로 재생" : linkLabel(draft.link)}</small><strong>{draft.link.title}</strong><em>{draft.link.description}</em></span><ExternalLink /></a>}</section>
             {!guestPosting && <section><div className="section-label"><UploadCloud />첨부</div>{!readOnly && <button className="drop-zone" type="button" onClick={() => fileInputRef.current?.click()} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); void addFiles(event.dataTransfer.files); }}>{uploading ? <LoaderCircle className="spin" /> : <UploadCloud />}<span>이미지 또는 PDF를 선택하거나 끌어 놓으세요.</span><small>{supabaseConfigured ? "파일당 최대 15MB" : "데모 모드 파일당 최대 2MB"} · 동영상 제외</small><input ref={fileInputRef} hidden type="file" multiple accept="image/*,application/pdf" onChange={(event) => event.target.files && void addFiles(event.target.files)} /></button>}
               {!guestPosting && draft.attachments.length > 0 && <div className="attachment-grid">{draft.attachments.map((attachment) => <article className="attachment-item" key={attachment.id}>{attachment.kind === "image" ? <img src={attachment.url} alt={attachment.name} /> : <iframe title={attachment.name} src={`${attachment.url}#page=1&toolbar=0&navpanes=0`} />}<div><strong>{attachment.name}</strong><span>{attachment.kind === "pdf" ? "PDF" : "이미지"} · {formatBytes(attachment.size)}</span></div><a href={attachment.url} target="_blank" rel="noreferrer" aria-label={`${attachment.name} 열기`}><ExternalLink /></a>{!readOnly && <button onClick={() => deleteDraftAttachment(attachment)} aria-label={`${attachment.name} 삭제`}><X /></button>}</article>)}</div>}
             </section>}
@@ -1175,7 +1185,7 @@ export function BoardApp() {
             <div className="viewer-body">
               {viewerCard.body && <p className="viewer-text">{viewerCard.body}</p>}
               {viewerVideo && <div className="viewer-video"><iframe src={viewerVideo.embedUrl} title={viewerCard.link?.title || "동영상"} allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen" allowFullScreen referrerPolicy="strict-origin-when-cross-origin" /></div>}
-              {viewerCard.link && <a className={`link-preview viewer-link${viewerVideo ? " is-compact" : ""}`} href={viewerCard.link.url} target="_blank" rel="noreferrer">{!viewerVideo && (viewerCard.link.image || viewerCard.link.icon) && <img className={viewerCard.link.image ? undefined : "is-icon"} src={viewerCard.link.image || viewerCard.link.icon} alt="" />}<span><small>{linkLabel(viewerCard.link)}</small><strong>{viewerCard.link.title}</strong>{viewerCard.link.description && <em>{viewerCard.link.description}</em>}</span><ExternalLink aria-hidden="true" /></a>}
+              {viewerCard.link && <a className={`link-preview viewer-link${viewerVideo ? " is-compact" : ""}`} href={viewerCard.link.url} target="_blank" rel="noreferrer">{!viewerVideo && (viewerCard.link.image || viewerCard.link.icon) && <img className={viewerCard.link.image ? undefined : "is-icon"} src={viewerCard.link.image || viewerCard.link.icon} alt="" referrerPolicy="no-referrer" />}<span><small>{linkLabel(viewerCard.link)}</small><strong>{viewerCard.link.title}</strong>{viewerCard.link.description && <em>{viewerCard.link.description}</em>}</span><ExternalLink aria-hidden="true" /></a>}
               {viewerCard.attachments.map((attachment) => attachment.kind === "image" ? (
                 <figure className="viewer-image" key={attachment.id}>
                   <button type="button" onClick={() => setLightboxUrl(attachment.url)} aria-label={`${attachment.name} 전체 화면으로 보기`}><img src={attachment.url} alt={attachment.name} /><span className="zoom-hint"><Maximize2 aria-hidden="true" /></span></button>

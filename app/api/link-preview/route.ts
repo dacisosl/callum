@@ -103,6 +103,16 @@ function getFirstImage(html: string) {
   return "";
 }
 
+// https 페이지 안에서 http 이미지는 브라우저가 막습니다(혼합 콘텐츠). https로 바꿔 시도하고, 안 되면 화면 쪽에서 대체합니다.
+function preferHttps(value?: string) {
+  return value?.startsWith("http://") ? `https://${value.slice(7)}` : value;
+}
+
+// 사이트를 직접 읽지 않고도 아이콘을 얻을 수 있는 공개 서비스. /favicon.ico 가 없는 사이트도 표지를 가질 수 있습니다.
+function faviconService(hostname: string) {
+  return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(hostname)}&sz=128`;
+}
+
 function absoluteUrl(value: string, base: URL) {
   if (!value) return undefined;
   try {
@@ -170,11 +180,11 @@ export async function GET(request: NextRequest) {
       getMeta(html, ["itemprop:image"]) ||
       getJsonLdImage(html) ||
       getFirstImage(html);
-    const image = absoluteUrl(imageCandidate, target);
+    const image = preferHttps(absoluteUrl(imageCandidate, target));
     // 대표 이미지가 없는 사이트도 카드가 비어 보이지 않도록 아이콘을 함께 내려 줍니다.
     const icon =
-      absoluteUrl(getLinkHref(html, ["apple-touch-icon", "apple-touch-icon-precomposed", "icon", "shortcut icon"]), target) ||
-      absoluteUrl("/favicon.ico", target);
+      preferHttps(absoluteUrl(getLinkHref(html, ["apple-touch-icon", "apple-touch-icon-precomposed", "icon", "shortcut icon"]), target)) ||
+      faviconService(target.hostname);
     const siteName =
       getMeta(html, ["og:site_name"]) || target.hostname.replace(/^www\./, "");
 
@@ -195,7 +205,7 @@ export async function GET(request: NextRequest) {
       url: target.toString(),
       title: target.hostname.replace(/^www\./, ""),
       description: `${reason} 링크는 그대로 저장됩니다.`,
-      icon: absoluteUrl("/favicon.ico", target),
+      icon: faviconService(target.hostname),
       siteName: target.hostname.replace(/^www\./, ""),
     });
   }

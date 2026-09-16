@@ -54,7 +54,8 @@ grant execute on function public.get_shared_board(text) to anon, authenticated;
 
 -- 4. 첨부파일 버킷: 공개 읽기(공유 링크용), 쓰기는 자기 폴더({user_id}/...)에만 허용합니다.
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
-values ('attachments', 'attachments', true, 15728640, array['image/*', 'application/pdf'])
+-- 파일당 30MB. 앱의 MAX_CLOUD_FILE 과 같은 값입니다.
+values ('attachments', 'attachments', true, 31457280, array['image/*', 'application/pdf'])
 on conflict (id) do update
   set public = excluded.public,
       file_size_limit = excluded.file_size_limit,

@@ -103,7 +103,8 @@ import {
 const LOCAL_KEY = "pillar-boards-v3";
 const LOCAL_COMMENTS_KEY = "pillar-comments-v1";
 const COMMENT_NAME_KEY = "pillar-comment-name";
-const MAX_CLOUD_FILE = 15 * 1024 * 1024;
+// 파일당 상한. supabase/schema.sql 의 버킷 file_size_limit 과 같은 값이어야 합니다.
+const MAX_CLOUD_FILE = 30 * 1024 * 1024;
 const MAX_DEMO_FILE = 2 * 1024 * 1024;
 
 type DeleteTarget =
@@ -986,7 +987,7 @@ export function BoardApp() {
       const allowed = file.type.startsWith("image/") || file.type === "application/pdf";
       if (!allowed || file.type.startsWith("video/")) { toast.error(`${file.name}: 이미지와 PDF만 첨부할 수 있습니다.`); return false; }
       const maxSize = supabaseConfigured ? MAX_CLOUD_FILE : MAX_DEMO_FILE;
-      if (file.size > maxSize) { toast.error(`${file.name}: ${supabaseConfigured ? "15MB" : "2MB"} 이하 파일만 첨부할 수 있습니다.`); return false; }
+      if (file.size > maxSize) { toast.error(`${file.name}: ${supabaseConfigured ? "30MB" : "2MB"} 이하 파일만 첨부할 수 있습니다.`); return false; }
       return true;
     });
     if (!accepted.length) return;
@@ -1275,7 +1276,7 @@ export function BoardApp() {
             <label>내용<textarea value={draft.body} readOnly={readOnly && !guestPosting} maxLength={3000} onChange={(event) => setDraft({ ...draft, body: event.target.value })} placeholder="메모를 입력하세요" /></label>
             {!readOnly && <section><div className="section-label"><Palette />카드 색</div><div className="tone-swatches" role="radiogroup" aria-label="카드 색">{CARD_TONES.map((tone) => <button key={tone.value} type="button" role="radio" aria-checked={(draft.tone ?? "default") === tone.value} className={`tone-swatch card-tone-${tone.value}${(draft.tone ?? "default") === tone.value ? " is-active" : ""}`} onClick={() => setDraft({ ...draft, tone: tone.value })} title={tone.label} aria-label={tone.label} />)}</div></section>}
             <section className="link-editor"><div className="section-label"><Link2 />링크</div>{(!readOnly || guestPosting) && <div className="link-input-row"><input value={linkInput} onChange={(event) => { const value = event.target.value; setLinkInput(value); if (!value.trim()) setDraft((current) => current ? { ...current, link: undefined } : current); }} placeholder="https://..." /><button className="secondary-button" onClick={() => void fetchLinkPreview()} disabled={linkLoading}>{linkLoading && <LoaderCircle className="spin" />}미리보기</button></div>}{draft.link && <a className="link-preview" href={draft.link.url} target="_blank" rel="noreferrer"><LinkRowImage key={`${draft.link.url}|${draft.link.image ?? ""}`} link={draft.link} /><span><small>{getVideoEmbed(draft.link.url) ? "동영상 · 카드에서 바로 재생" : linkLabel(draft.link)}</small><strong>{draft.link.title}</strong><em>{draft.link.description}</em></span><ExternalLink /></a>}{draft.link && (!readOnly || guestPosting) && <button type="button" className="text-button link-remove" onClick={removeDraftLink}><X />링크 제거</button>}</section>
-            {!guestPosting && <section><div className="section-label"><UploadCloud />첨부</div>{!readOnly && <button className="drop-zone" type="button" onClick={() => fileInputRef.current?.click()} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); void addFiles(event.dataTransfer.files); }}>{uploading ? <LoaderCircle className="spin" /> : <UploadCloud />}<span>이미지 또는 PDF를 선택하거나 끌어 놓으세요.</span><small>{supabaseConfigured ? "파일당 최대 15MB" : "데모 모드 파일당 최대 2MB"} · 동영상 제외</small><input ref={fileInputRef} hidden type="file" multiple accept="image/*,application/pdf" onChange={(event) => event.target.files && void addFiles(event.target.files)} /></button>}
+            {!guestPosting && <section><div className="section-label"><UploadCloud />첨부</div>{!readOnly && <button className="drop-zone" type="button" onClick={() => fileInputRef.current?.click()} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); void addFiles(event.dataTransfer.files); }}>{uploading ? <LoaderCircle className="spin" /> : <UploadCloud />}<span>이미지 또는 PDF를 선택하거나 끌어 놓으세요.</span><small>{supabaseConfigured ? "파일당 최대 30MB" : "데모 모드 파일당 최대 2MB"} · 동영상 제외</small><input ref={fileInputRef} hidden type="file" multiple accept="image/*,application/pdf" onChange={(event) => event.target.files && void addFiles(event.target.files)} /></button>}
               {!guestPosting && draft.attachments.length > 0 && <div className="attachment-grid">{draft.attachments.map((attachment) => <article className="attachment-item" key={attachment.id}>{attachment.kind === "image" ? <img src={attachment.url} alt={attachment.name} /> : <iframe title={attachment.name} src={`${attachment.url}#page=1&toolbar=0&navpanes=0`} />}<div><strong>{attachment.name}</strong><span>{attachment.kind === "pdf" ? "PDF" : "이미지"} · {formatBytes(attachment.size)}</span></div><a href={attachment.url} target="_blank" rel="noreferrer" aria-label={`${attachment.name} 열기`}><ExternalLink /></a>{!readOnly && <button onClick={() => deleteDraftAttachment(attachment)} aria-label={`${attachment.name} 삭제`}><X /></button>}</article>)}</div>}
             </section>}
           </div>}

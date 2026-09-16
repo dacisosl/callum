@@ -64,7 +64,7 @@ Supabase 무료 프로젝트는 일주일간 요청이 없으면 자동으로 �
 
 ## 파일 제한
 
-- 파일당 최대 15MB (버킷 설정과 앱 양쪽에서 제한)
+- 파일당 최대 30MB (버킷 설정과 앱 양쪽에서 제한). 한도를 바꾸려면 `supabase/schema.sql`의 버킷 `file_size_limit`과 `app/board-app.tsx`의 `MAX_CLOUD_FILE`을 함께 고치고 SQL을 다시 실행합니다
 - 허용 형식: 이미지, PDF
 - 동영상 파일은 선택 단계와 업로드 처리 단계에서 거부됩니다
 

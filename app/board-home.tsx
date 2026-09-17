@@ -35,6 +35,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { FREE_DB_LIMIT, FREE_STORAGE_LIMIT, type BoardData, type UsageSnapshot } from "@/lib/board-types";
 import { supabaseConfig } from "@/lib/supabase-config";
+import { publicSiteOrigin, shareLink } from "@/lib/site-url";
 
 function formatSize(bytes: number) {
   if (bytes >= 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024 / 1024).toFixed(2)}GB`;
@@ -153,11 +154,12 @@ export function BoardHome({ boards, demo, showLogout, usage, usageLoading, onRef
   const sharedBoards = boards.filter((board) => board.shareEnabled && board.shareToken);
 
   useEffect(() => {
+    // 공유 링크는 항상 고정 도메인으로. 로컬 개발 서버에서만 현재 주소를 씁니다.
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setOrigin(`${window.location.origin}${window.location.pathname}`);
+    setOrigin(publicSiteOrigin());
   }, []);
 
-  const shareUrl = (board: BoardData) => (origin ? `${origin}?share=${board.shareToken}` : "");
+  const shareUrl = (board: BoardData) => (origin && board.shareToken ? shareLink(origin, board.shareToken) : "");
   function copyLink(board: BoardData) {
     const url = shareUrl(board);
     if (!url) return;
@@ -170,7 +172,7 @@ export function BoardHome({ boards, demo, showLogout, usage, usageLoading, onRef
       <header className="topbar">
         <div className="brand-row">
           <span className="brand-mark" aria-hidden="true">P</span>
-          <div className="home-title"><span>Pillar</span><strong>내 보드<em>{boards.length}</em></strong></div>
+          <div className="home-title"><span>Padlet-Lite</span><strong>내 보드<em>{boards.length}</em></strong></div>
         </div>
         <div className="top-actions">
           <label className="search-box"><Search aria-hidden="true" /><span className="sr-only">보드 검색</span><input value={queryText} onChange={(event) => setQueryText(event.target.value)} placeholder="보드 검색" />{queryText && <button onClick={() => setQueryText("")} aria-label="검색어 지우기"><X /></button>}</label>

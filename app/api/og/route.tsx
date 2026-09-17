@@ -5,7 +5,7 @@ import { boardSummary, loadSharedBoardOnServer } from "@/lib/shared-board-server
 // 공유 링크의 미리보기 이미지(1200×630). 카카오톡·슬랙 등이 og:image 로 가져갑니다.
 // 한글을 그리려면 글꼴이 필요해 Google Fonts 에서 제목에 쓰인 글자만 부분 집합으로 받아 옵니다.
 
-const FALLBACK_TITLE = "Pillar 보드";
+const FALLBACK_TITLE = "Padlet-Lite 보드";
 
 async function loadKoreanFont(text: string): Promise<ArrayBuffer | null> {
   try {
@@ -38,9 +38,9 @@ export async function GET(request: NextRequest) {
     : board === null && token
       ? "링크가 만료되었거나 공유가 해제된 보드입니다"
       : "링크, 이미지, PDF를 칼럼으로 정리하는 보드";
-  const footer = board ? "공유 보드 · 링크를 가진 사람은 읽을 수 있습니다" : "Pillar";
+  const footer = board ? "공유 보드 · 링크를 가진 사람은 읽을 수 있습니다" : "Padlet-Lite";
 
-  const fontData = await loadKoreanFont(`${title}${meta}${footer}${chips.join("")}Pillar공유 보드`);
+  const fontData = await loadKoreanFont(`${title}${meta}${footer}${chips.join("")}Padlet-Lite공유 보드`);
   const fonts = fontData ? [{ name: "NotoSansKR", data: fontData, weight: 700 as const, style: "normal" as const }] : undefined;
 
   return new ImageResponse(
@@ -50,8 +50,8 @@ export async function GET(request: NextRequest) {
           <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
             <div style={{ width: 64, height: 64, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 20, background: "#155eef", color: "white", fontSize: 34, fontWeight: 700 }}>P</div>
             <div style={{ display: "flex", flexDirection: "column" }}>
-              <div style={{ fontSize: 22, color: "#66727c", fontWeight: 700 }}>{board ? "공유 보드" : "Pillar"}</div>
-              <div style={{ fontSize: 26, color: "#172027", fontWeight: 700 }}>Pillar</div>
+              <div style={{ fontSize: 22, color: "#66727c", fontWeight: 700 }}>{board ? "공유 보드" : "Padlet-Lite"}</div>
+              <div style={{ fontSize: 26, color: "#172027", fontWeight: 700 }}>Padlet-Lite</div>
             </div>
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>

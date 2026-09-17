@@ -15,14 +15,7 @@ export async function loadSharedBoardOnServer(token: string): Promise<BoardData 
   }
 }
 
-// 배포 도메인. Vercel 이 넣어 주는 고정 도메인을 우선 쓰고, 없으면 로컬 주소입니다.
-export function siteOrigin() {
-  const explicit = process.env.NEXT_PUBLIC_SITE_URL;
-  if (explicit) return explicit.replace(/\/$/, "");
-  const vercel = process.env.VERCEL_PROJECT_PRODUCTION_URL || process.env.VERCEL_URL;
-  if (vercel) return `https://${vercel}`;
-  return "http://localhost:3000";
-}
+export { siteOrigin } from "./site-url";
 
 export function boardSummary(board: BoardData) {
   const cardCount = board.columns.reduce((sum, column) => sum + column.cards.length, 0);

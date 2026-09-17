@@ -13,23 +13,23 @@ export async function generateMetadata({ searchParams }: { searchParams: SearchP
   const origin = siteOrigin();
   if (!board) {
     return {
-      title: "공유 보드 · Pillar",
+      title: "공유 보드 · Padlet-Lite",
       description: "링크가 만료되었거나 공유가 해제된 보드입니다.",
-      openGraph: { title: "공유 보드 · Pillar", description: "링크가 만료되었거나 공유가 해제된 보드입니다.", type: "website", locale: "ko_KR", url: `${origin}/?share=${token}` },
+      openGraph: { title: "공유 보드 · Padlet-Lite", description: "링크가 만료되었거나 공유가 해제된 보드입니다.", type: "website", locale: "ko_KR", url: `${origin}/?share=${token}` },
     };
   }
   const { cardCount, columnCount, columnTitles } = boardSummary(board);
   const description = `칼럼 ${columnCount}개 · 카드 ${cardCount}개 · ${columnTitles.slice(0, 4).join(", ")}${columnTitles.length > 4 ? " 외" : ""}`;
   const image = `${origin}/api/og?share=${encodeURIComponent(token)}`;
   return {
-    title: `${board.title} · Pillar`,
+    title: `${board.title} · Padlet-Lite`,
     description,
     openGraph: {
       title: board.title,
       description,
       type: "website",
       locale: "ko_KR",
-      siteName: "Pillar",
+      siteName: "Padlet-Lite",
       url: `${origin}/?share=${token}`,
       images: [{ url: image, width: 1200, height: 630, alt: `${board.title} 보드 미리보기` }],
     },

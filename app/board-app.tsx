@@ -87,6 +87,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { BoardHome } from "./board-home";
 import { cloneStarterBoard } from "@/lib/demo-data";
 import { supabaseConfigured } from "@/lib/supabase-config";
+import { publicSiteOrigin, shareLink } from "@/lib/site-url";
 import {
   CARD_TONES,
   COLUMN_HUES,
@@ -478,7 +479,7 @@ function AuthGate() {
     <main className="auth-screen">
       <section className="auth-card">
         <span className="brand-mark" aria-hidden="true">P</span>
-        <h1>Pillar</h1>
+        <h1>Padlet-Lite</h1>
         <p>내 자료 보드에 로그인하세요.</p>
         <label>이메일<input type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} /></label>
         <label>비밀번호<input type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} onKeyDown={(event) => event.key === "Enter" && void submit()} /></label>
@@ -1365,7 +1366,8 @@ export function BoardApp() {
     setDeleteTarget(null);
   }
 
-  const shareUrl = useMemo(() => activeBoard?.shareToken && typeof window !== "undefined" ? `${window.location.origin}${window.location.pathname}?share=${activeBoard.shareToken}` : "", [activeBoard?.shareToken]);
+  // 공유 링크는 현재 열려 있는 주소가 아니라 항상 고정 도메인으로 만듭니다.
+  const shareUrl = activeBoard?.shareToken ? shareLink(publicSiteOrigin(), activeBoard.shareToken) : "";
   function setSharing(enabled: boolean) {
     updateActiveBoard((board) => ({ ...board, shareEnabled: enabled, shareToken: enabled ? board.shareToken || makeShareToken() : board.shareToken }));
   }

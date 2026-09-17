@@ -326,15 +326,18 @@ begin
          or coalesce((attachment ->> 'size')::bigint, 0) > 31457280 then
         raise exception '첨부 정보가 올바르지 않습니다.';
       end if;
-      clean_attachments := clean_attachments || jsonb_build_object(
+      -- PDF 첫 쪽 썸네일도 같은 guest/{이 보드}/ 경로에 올라간 것만 받고, 아니면 버립니다.
+      clean_attachments := clean_attachments || jsonb_strip_nulls(jsonb_build_object(
         'id', left(coalesce(attachment ->> 'id', 'file-' || gen_random_uuid()::text), 80),
         'name', left(coalesce(attachment ->> 'name', '첨부'), 200),
         'kind', attachment ->> 'kind',
         'mimeType', left(coalesce(attachment ->> 'mimeType', ''), 100),
         'size', coalesce((attachment ->> 'size')::bigint, 0),
         'url', attachment ->> 'url',
-        'storagePath', attachment ->> 'storagePath'
-      );
+        'storagePath', attachment ->> 'storagePath',
+        'thumbnailUrl', case when coalesce(attachment ->> 'thumbnailUrl', '') like ('%/storage/v1/object/public/attachments/guest/' || target.id || '/%') then attachment ->> 'thumbnailUrl' end,
+        'thumbnailPath', case when coalesce(attachment ->> 'thumbnailPath', '') like ('guest/' || target.id || '/%') then attachment ->> 'thumbnailPath' end
+      ));
     end loop;
   end if;
 

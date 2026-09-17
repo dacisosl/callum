@@ -213,6 +213,10 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .pdf-preview { aspect-ratio: 2 / 1; background: #faeeec; }
 .card-preview.pdf-preview, .card-preview.video-preview { display: block; }
 .pdf-preview iframe { width: 100%; height: 100%; display: block; border: 0; pointer-events: none; background: #faeeec; }
+.pdf-thumb { object-position: top; background: white; }
+.pdf-placeholder { width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 12px 18px; color: #a3564d; }
+.pdf-placeholder svg { width: 30px; height: 30px; }
+.pdf-placeholder em { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-style: normal; font-size: 12px; font-weight: 700; color: #7a5b57; }
 .preview-badge, .play-badge { position: absolute; display: inline-flex; align-items: center; justify-content: center; gap: 4px; pointer-events: none; }
 .preview-badge { right: 8px; bottom: 8px; padding: 3px 8px; border-radius: 999px; background: rgba(180,35,24,.92); color: white; font-size: 11px; font-weight: 800; letter-spacing: .05em; }
 .preview-badge svg { width: 12px; }
@@ -299,6 +303,8 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .attachment-grid { display: grid; gap: 8px; margin-top: 9px; }
 .attachment-item { min-height: 72px; display: grid; grid-template-columns: 82px minmax(0,1fr) 30px 30px; gap: 10px; align-items: center; overflow: hidden; border: 1px solid var(--border); border-radius: 11px; background: white; }
 .attachment-item > img, .attachment-item > iframe { width: 82px; height: 72px; display: block; object-fit: cover; border: 0; background: #eef2f4; pointer-events: none; }
+.attachment-item > .attachment-icon { width: 82px; height: 72px; display: grid; place-items: center; background: #faeeec; color: #a3564d; }
+.attachment-item > .attachment-icon svg { width: 24px; height: 24px; }
 .attachment-item > div { min-width: 0; display: grid; gap: 3px; }
 .attachment-item strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
 .attachment-item span { color: #78848c; font-size: 11px; }
@@ -329,6 +335,14 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .zoom-hint svg { width: 16px; }
 .viewer-image > button:hover .zoom-hint, .viewer-image > button:focus-visible .zoom-hint { opacity: 1; }
 .viewer-pdf iframe { width: 100%; height: min(72vh, 720px); display: block; border: 1px solid var(--border); border-radius: 14px; background: #f4f6f8; }
+.pdf-pages { display: grid; gap: 8px; }
+.pdf-pages-status { position: relative; display: grid; gap: 10px; padding: 14px; border: 1px dashed var(--border); border-radius: 14px; background: #f7f9fb; color: #5f6c76; font-size: 13px; }
+.pdf-pages-status img { width: 100%; max-height: 320px; object-fit: cover; object-position: top; border-radius: 10px; opacity: .55; }
+.pdf-pages-status span { display: flex; align-items: center; gap: 8px; font-weight: 650; }
+.pdf-pages-status span svg { width: 16px; height: 16px; flex: none; }
+.pdf-pages-canvas { display: grid; gap: 10px; }
+.pdf-pages-canvas canvas { width: 100%; height: auto; display: block; border: 1px solid var(--border); border-radius: 12px; background: white; box-shadow: 0 6px 18px rgba(24,34,42,.06); }
+.pdf-pages-more { margin: 0; color: #78848c; font-size: 12px; text-align: center; }
 .viewer-image figcaption, .viewer-pdf figcaption { display: flex; align-items: center; gap: 8px; color: #5f6c76; font-size: 12px; }
 .viewer-image figcaption > svg, .viewer-pdf figcaption > svg { width: 14px; flex: 0 0 14px; }
 .viewer-image figcaption span, .viewer-pdf figcaption span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #34424c; font-weight: 650; }
@@ -426,6 +440,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   .link-preview > img { width: 68px; height: 72px; }
   .attachment-item { grid-template-columns: 60px minmax(0,1fr) 28px 28px; gap: 7px; }
   .attachment-item > img, .attachment-item > iframe { width: 60px; }
+  .attachment-item > .attachment-icon { width: 60px; }
 }
 
 /* 보드 화면: 배경, 제목, 게시 버튼 */

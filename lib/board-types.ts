@@ -8,6 +8,9 @@ export interface Attachment {
   size: number;
   url: string;
   storagePath?: string;
+  // PDF 첫 쪽을 이미지로 만든 썸네일. 카드 타일과 휴대폰 뷰어에서 iframe 대신 씁니다.
+  thumbnailUrl?: string;
+  thumbnailPath?: string;
 }
 
 export interface LinkPreviewData {

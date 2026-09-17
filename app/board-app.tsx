@@ -140,6 +140,64 @@ function useTouchLayout() {
   return useSyncExternalStore(subscribeTouchLayout, () => window.matchMedia(TOUCH_LAYOUT_QUERY).matches, () => false);
 }
 
+// PDF 를 <iframe> 으로 바로 그릴 수 있는 브라우저인지. 안드로이드(카카오톡 인앱 포함)와 아이폰은
+// PDF 를 화면에 그리지 못하고 파일 다운로드로 넘기므로, 거기서는 썸네일 이미지와 캔버스 렌더링을 씁니다.
+const INLINE_PDF_QUERY = "(hover: hover) and (pointer: fine)";
+function inlinePdfSupported() {
+  return window.matchMedia(INLINE_PDF_QUERY).matches && !/Android|iPhone|iPad|iPod|KAKAOTALK/i.test(navigator.userAgent);
+}
+function subscribeInlinePdf(callback: () => void) {
+  const media = window.matchMedia(INLINE_PDF_QUERY);
+  media.addEventListener("change", callback);
+  return () => media.removeEventListener("change", callback);
+}
+function useInlinePdf() {
+  return useSyncExternalStore(subscribeInlinePdf, inlinePdfSupported, () => false);
+}
+
+// 뷰어에서 한 번에 그리는 최대 PDF 쪽수(lib/pdf-render.ts 와 같은 값).
+const PDF_PAGE_LIMIT = 30;
+
+// PDF 쪽을 캔버스로 그려 보여줍니다. iframe 이 PDF 를 다운로드로 넘겨 버리는 휴대폰 브라우저용입니다.
+function PdfPages({ url, name, poster }: { url: string; name: string; poster?: string }) {
+  const holder = useRef<HTMLDivElement>(null);
+  const [state, setState] = useState<"loading" | "ready" | "error">("loading");
+  const [pageCount, setPageCount] = useState(0);
+  useEffect(() => {
+    const host = holder.current;
+    if (!host) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { openPdf, renderPdfPage } = await import("@/lib/pdf-render");
+        const doc = await openPdf(url);
+        if (cancelled) { void doc.loadingTask.destroy(); return; }
+        setPageCount(doc.numPages);
+        const width = Math.max(240, host.clientWidth || 320);
+        for (let number = 1; number <= Math.min(doc.numPages, PDF_PAGE_LIMIT); number += 1) {
+          const canvas = await renderPdfPage(doc, number, width);
+          if (cancelled) break;
+          canvas.setAttribute("aria-label", `${number}쪽`);
+          host.appendChild(canvas);
+          if (number === 1) setState("ready");
+        }
+        void doc.loadingTask.destroy();
+      } catch {
+        if (!cancelled) setState("error");
+      }
+    })();
+    return () => { cancelled = true; host.replaceChildren(); };
+  }, [url]);
+  return (
+    <div className={`pdf-pages is-${state}`}>
+      {state === "loading" && <div className="pdf-pages-status">{poster && <img src={poster} alt="" />}<span><LoaderCircle className="spin" aria-hidden="true" />PDF를 불러오는 중…</span></div>}
+      {state === "error" && <div className="pdf-pages-status"><span><FileText aria-hidden="true" />이 기기에서 PDF를 그리지 못했습니다. 아래 &quot;새 탭에서 열기&quot;를 눌러 주세요.</span></div>}
+      <div ref={holder} className="pdf-pages-canvas" role="img" aria-label={`${name} 미리보기`} />
+      {pageCount > PDF_PAGE_LIMIT && <p className="pdf-pages-more">앞 {PDF_PAGE_LIMIT}쪽만 표시합니다. 전체는 새 탭에서 열어 보세요.</p>}
+    </div>
+  );
+}
+
 // 이벤트 핸들러에서 쓰는 현재 시각. 렌더 중에는 부르지 않습니다.
 function nowMs() {
   return Date.now();
@@ -552,14 +610,19 @@ function hasPreview(card: BoardCard) {
 
 // 카드 타일 안의 미리보기. 이미지 > PDF 첫 페이지 > 동영상 썸네일 > 링크 썸네일 순서로 하나만 보여줍니다.
 function CardPreview({ card }: { card: BoardCard }) {
+  const inlinePdf = useInlinePdf();
   const firstImage = card.attachments.find((item) => item.kind === "image");
   const firstPdf = card.attachments.find((item) => item.kind === "pdf");
   const video = getVideoEmbed(card.link?.url);
   if (firstImage) return <span className="card-preview"><img className="card-image" src={firstImage.url} alt="" loading="lazy" /></span>;
   if (firstPdf) {
+    // 썸네일 이미지가 있으면 어디서나 그것을 쓰고, 없는 옛 PDF 는 iframe 을 그릴 수 있는 데스크톱에서만 iframe 으로,
+    // 휴대폰에서는 파일 다운로드가 뜨지 않도록 아이콘 자리표시로 보여줍니다.
     return (
       <span className="card-preview pdf-preview" aria-hidden="true">
-        <iframe title="" src={`${firstPdf.url}#page=1&toolbar=0&navpanes=0&scrollbar=0&view=FitH`} loading="lazy" tabIndex={-1} />
+        {firstPdf.thumbnailUrl ? <img className="card-image pdf-thumb" src={firstPdf.thumbnailUrl} alt="" loading="lazy" />
+          : inlinePdf ? <iframe title="" src={`${firstPdf.url}#page=1&toolbar=0&navpanes=0&scrollbar=0&view=FitH`} loading="lazy" tabIndex={-1} />
+          : <span className="pdf-placeholder"><FileText /><em>{firstPdf.name}</em></span>}
         <span className="preview-badge"><FileText />PDF</span>
       </span>
     );
@@ -837,6 +900,7 @@ export function BoardApp() {
   const [activeColumnIndex, setActiveColumnIndex] = useState(0);
   const boardRef = useRef<HTMLElement>(null);
   const touchLayout = useTouchLayout();
+  const inlinePdf = useInlinePdf();
   const dragSnapshot = useRef<BoardData | null>(null);
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const [comments, setComments] = useState<CardComment[]>([]);
@@ -1009,6 +1073,39 @@ export function BoardApp() {
     markDirty(boardId);
   }, [markDirty]);
   const updateActiveBoard = useCallback((updater: (board: BoardData) => BoardData) => updateBoard(activeBoardId, updater), [activeBoardId, updateBoard]);
+
+  // 썸네일 없이 올라간 옛 PDF 첨부에 첫 쪽 썸네일을 채워 넣습니다. 보드 주인이 보드를 열었을 때 하나씩 처리하며,
+  // 한 번 시도한 첨부는 이 세션에서 다시 시도하지 않습니다.
+  const thumbnailBackfill = useRef(new Set<string>());
+  useEffect(() => {
+    if (!activeBoard || readOnly || (supabaseConfigured && !user)) return;
+    const boardId = activeBoard.id;
+    const target = activeBoard.columns.flatMap((column) => column.cards.flatMap((card) => card.attachments))
+      .find((attachment) => attachment.kind === "pdf" && !attachment.thumbnailUrl && !thumbnailBackfill.current.has(attachment.id));
+    if (!target) return;
+    thumbnailBackfill.current.add(target.id);
+    (async () => {
+      try {
+        const response = await fetch(target.url);
+        if (!response.ok) return;
+        const thumbnail = await (await import("@/lib/pdf-render")).renderPdfThumbnail(new File([await response.blob()], target.name, { type: "application/pdf" }));
+        if (!thumbnail) return;
+        const stored = supabaseConfigured && user
+          ? await (await import("@/lib/supabase-client")).uploadAttachment(thumbnail, user.uid, boardId, `${target.id}-thumb`)
+          : { url: await fileToDataUrl(thumbnail), storagePath: undefined };
+        updateBoard(boardId, (board) => ({
+          ...board,
+          columns: board.columns.map((column) => ({
+            ...column,
+            cards: column.cards.map((card) => ({
+              ...card,
+              attachments: card.attachments.map((attachment) => attachment.id === target.id ? { ...attachment, thumbnailUrl: stored.url, thumbnailPath: stored.storagePath } : attachment),
+            })),
+          })),
+        }));
+      } catch (error) { console.warn("PDF 썸네일 채우기 실패", error); }
+    })();
+  }, [activeBoard, readOnly, user, updateBoard]);
 
   const pushUndo = useCallback((previous: BoardData, message: string) => {
     toast(message, { action: { label: "실행 취소", onClick: () => {
@@ -1208,14 +1305,32 @@ export function BoardApp() {
       const uploaded: Attachment[] = [];
       for (const file of accepted) {
         const id = makeId("file");
-        if (supabaseConfigured && guestPosting && sharedToken) uploaded.push(await (await import("@/lib/supabase-client")).uploadGuestAttachment(file, activeBoard.id, id));
-        else if (supabaseConfigured && user) uploaded.push(await (await import("@/lib/supabase-client")).uploadAttachment(file, user.uid, activeBoard.id, id));
-        else uploaded.push({ id, name: file.name, kind: file.type === "application/pdf" ? "pdf" : "image", mimeType: file.type, size: file.size, url: await fileToDataUrl(file) });
+        const stored = await storeFile(file, id);
+        // PDF 는 첫 쪽 썸네일도 함께 올립니다. 휴대폰에서는 iframe 대신 이 이미지를 보여줍니다.
+        if (stored.kind === "pdf") {
+          const thumbnail = await (await import("@/lib/pdf-render")).renderPdfThumbnail(file);
+          if (thumbnail) {
+            try {
+              const storedThumb = await storeFile(thumbnail, `${id}-thumb`);
+              stored.thumbnailUrl = storedThumb.url;
+              stored.thumbnailPath = storedThumb.storagePath;
+            } catch { /* 썸네일이 없어도 첨부는 그대로 둡니다. */ }
+          }
+        }
+        uploaded.push(stored);
       }
       setDraft((current) => current ? { ...current, attachments: [...current.attachments, ...uploaded] } : current);
       return uploaded.length;
     } catch (error) { toast.error(error instanceof Error && error.message ? `업로드 실패: ${error.message}` : "파일을 업로드하지 못했습니다."); return 0; }
     finally { setUploading(false); if (fileInputRef.current) fileInputRef.current.value = ""; }
+  }
+
+  // 파일 하나를 저장소(또는 데모 모드의 데이터 URL)에 올리고 첨부 정보를 돌려줍니다.
+  async function storeFile(file: File, id: string): Promise<Attachment> {
+    if (!activeBoard) throw new Error("보드가 없습니다.");
+    if (supabaseConfigured && guestPosting && sharedToken) return (await import("@/lib/supabase-client")).uploadGuestAttachment(file, activeBoard.id, id);
+    if (supabaseConfigured && user) return (await import("@/lib/supabase-client")).uploadAttachment(file, user.uid, activeBoard.id, id);
+    return { id, name: file.name, kind: file.type === "application/pdf" ? "pdf" : "image", mimeType: file.type, size: file.size, url: await fileToDataUrl(file) };
   }
 
   function deleteDraftAttachment(attachment: Attachment) {
@@ -1513,7 +1628,7 @@ export function BoardApp() {
             {!readOnly && <section><div className="section-label"><Palette />카드 색</div><div className="tone-swatches" role="radiogroup" aria-label="카드 색">{CARD_TONES.map((tone) => <button key={tone.value} type="button" role="radio" aria-checked={(draft.tone ?? "default") === tone.value} className={`tone-swatch card-tone-${tone.value}${(draft.tone ?? "default") === tone.value ? " is-active" : ""}`} onClick={() => setDraft({ ...draft, tone: tone.value })} title={tone.label} aria-label={tone.label} />)}</div></section>}
             <section className="link-editor"><div className="section-label"><Link2 />링크</div>{(!readOnly || guestPosting) && <div className="link-input-row"><input value={linkInput} onChange={(event) => { const value = event.target.value; setLinkInput(value); if (!value.trim()) setDraft((current) => current ? { ...current, link: undefined } : current); }} placeholder="https://..." /><button className="secondary-button" onClick={() => void fetchLinkPreview()} disabled={linkLoading}>{linkLoading && <LoaderCircle className="spin" />}미리보기</button></div>}{draft.link && <a className="link-preview" href={draft.link.url} target="_blank" rel="noreferrer"><LinkRowImage key={`${draft.link.url}|${draft.link.image ?? ""}`} link={draft.link} /><span><small>{getVideoEmbed(draft.link.url) ? "동영상 · 카드에서 바로 재생" : linkLabel(draft.link)}</small><strong>{draft.link.title}</strong><em>{draft.link.description}</em></span><ExternalLink /></a>}{draft.link && (!readOnly || guestPosting) && <button type="button" className="text-button link-remove" onClick={removeDraftLink}><X />링크 제거</button>}</section>
             <section><div className="section-label"><UploadCloud />첨부</div>{(!readOnly || guestPosting) && <button className="drop-zone" type="button" onClick={() => fileInputRef.current?.click()} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); void addFiles(event.dataTransfer.files); }}>{uploading ? <LoaderCircle className="spin" /> : <UploadCloud />}<span>이미지 또는 PDF를 선택하거나 끌어 놓으세요. 복사한 이미지는 Ctrl+V로 붙여넣어도 됩니다.</span><small>{supabaseConfigured ? "파일당 최대 30MB" : "데모 모드 파일당 최대 2MB"} · 동영상 제외</small><input ref={fileInputRef} hidden type="file" multiple accept="image/*,application/pdf" onChange={(event) => event.target.files && void addFiles(event.target.files)} /></button>}
-              {draft.attachments.length > 0 && <div className="attachment-grid">{draft.attachments.map((attachment) => <article className="attachment-item" key={attachment.id}>{attachment.kind === "image" ? <img src={attachment.url} alt={attachment.name} /> : <iframe title={attachment.name} src={`${attachment.url}#page=1&toolbar=0&navpanes=0`} />}<div><strong>{attachment.name}</strong><span>{attachment.kind === "pdf" ? "PDF" : "이미지"} · {formatBytes(attachment.size)}</span></div><a href={attachment.url} target="_blank" rel="noreferrer" aria-label={`${attachment.name} 열기`}><ExternalLink /></a>{(!readOnly || guestPosting) && <button onClick={() => deleteDraftAttachment(attachment)} aria-label={`${attachment.name} 삭제`}><X /></button>}</article>)}</div>}
+              {draft.attachments.length > 0 && <div className="attachment-grid">{draft.attachments.map((attachment) => <article className="attachment-item" key={attachment.id}>{attachment.kind === "image" ? <img src={attachment.url} alt={attachment.name} /> : attachment.thumbnailUrl ? <img src={attachment.thumbnailUrl} alt={attachment.name} /> : <span className="attachment-icon" aria-hidden="true"><FileText /></span>}<div><strong>{attachment.name}</strong><span>{attachment.kind === "pdf" ? "PDF" : "이미지"} · {formatBytes(attachment.size)}</span></div><a href={attachment.url} target="_blank" rel="noreferrer" aria-label={`${attachment.name} 열기`}><ExternalLink /></a>{(!readOnly || guestPosting) && <button onClick={() => deleteDraftAttachment(attachment)} aria-label={`${attachment.name} 삭제`}><X /></button>}</article>)}</div>}
             </section>
           </div>}
           <DialogFooter><button className="secondary-button" onClick={() => setEditorOpen(false)}>{readOnly && !guestPosting ? "닫기" : "취소"}</button>{(!readOnly || guestPosting) && <button className="primary-button" onClick={() => void saveDraft()} disabled={uploading}>{uploading && <LoaderCircle className="spin" aria-hidden="true" />}{guestPosting ? "올리기" : "저장"}</button>}</DialogFooter>
@@ -1540,7 +1655,7 @@ export function BoardApp() {
                 </figure>
               ) : (
                 <figure className="viewer-pdf" key={attachment.id}>
-                  <iframe src={`${attachment.url}#toolbar=1&navpanes=0&view=FitH`} title={attachment.name} />
+                  {inlinePdf ? <iframe src={`${attachment.url}#toolbar=1&navpanes=0&view=FitH`} title={attachment.name} /> : <PdfPages url={attachment.url} name={attachment.name} poster={attachment.thumbnailUrl} />}
                   <figcaption><FileText aria-hidden="true" /><span>{attachment.name}</span><small>PDF · {formatBytes(attachment.size)}</small><a href={attachment.url} target="_blank" rel="noreferrer">새 탭에서 열기<ExternalLink aria-hidden="true" /></a></figcaption>
                 </figure>
               ))}

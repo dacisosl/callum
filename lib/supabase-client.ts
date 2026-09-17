@@ -94,7 +94,7 @@ export async function removeBoard(board: BoardData, ownerId: string) {
   }
   const paths = board.columns.flatMap((column) =>
     column.cards.flatMap((card) =>
-      card.attachments.map((attachment) => attachment.storagePath).filter(Boolean),
+      card.attachments.flatMap((attachment) => [attachment.storagePath, attachment.thumbnailPath]).filter(Boolean),
     ),
   ) as string[];
   if (paths.length) await supabase().storage.from(BUCKET).remove(paths);

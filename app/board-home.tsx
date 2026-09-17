@@ -44,27 +44,37 @@ function formatSize(bytes: number) {
 
 // 한도 대비 사용 비율을 보여 주는 링 미터. 채움 색은 사용량 단계(정상 → 주의 → 위험)를 나타내고
 // 빈 부분은 같은 파랑 계열의 연한 단계라 상태가 한눈에 읽힙니다. 색만으로 뜻을 전하지 않도록 숫자와 아이콘을 함께 둡니다.
+// 크기와 색은 속성으로도 넣어 두어, 스타일시트가 늦게 오거나 빠져도 거대한 검은 원으로 그려지지 않습니다.
+const RING_COLORS = {
+  ok: { fill: "#155eef", track: "#dbe7fd" },
+  warning: { fill: "#e08a00", track: "#fdebc8" },
+  critical: { fill: "#d92d20", track: "#f9d5d1" },
+} as const;
+
 function RingMeter({ label, used, limit, icon, note }: { label: string; used: number; limit: number; icon: React.ReactNode; note?: string }) {
-  const ratio = Math.min(1, Math.max(0, used / limit));
+  const ratio = Math.min(1, Math.max(0, limit > 0 ? used / limit : 0));
   const percent = Math.round(ratio * 100);
-  const severity = ratio >= 0.9 ? "critical" : ratio >= 0.7 ? "warning" : "ok";
+  const percentLabel = used > 0 && percent < 1 ? "<1%" : `${percent}%`;
+  const severity: keyof typeof RING_COLORS = ratio >= 0.9 ? "critical" : ratio >= 0.7 ? "warning" : "ok";
+  const colors = RING_COLORS[severity];
   const radius = 44;
   const circumference = 2 * Math.PI * radius;
   const filled = Math.max(ratio > 0 ? 2 : 0, circumference * ratio);
   return (
     <figure className={`ring-meter is-${severity}`} role="img" aria-label={`${label} ${formatSize(used)} / ${formatSize(limit)}, ${used > 0 && percent < 1 ? "1% 미만" : `${percent}%`} 사용`}>
       <div className="ring-graphic">
-        <svg viewBox="0 0 112 112" aria-hidden="true">
-          <circle className="ring-track" cx="56" cy="56" r={radius} />
-          <circle className="ring-fill" cx="56" cy="56" r={radius} strokeDasharray={`${filled} ${circumference}`} transform="rotate(-90 56 56)" />
+        <svg width="88" height="88" viewBox="0 0 112 112" aria-hidden="true">
+          <circle className="ring-track" cx="56" cy="56" r={radius} fill="none" stroke={colors.track} strokeWidth="10" />
+          <circle className="ring-fill" cx="56" cy="56" r={radius} fill="none" stroke={colors.fill} strokeWidth="10" strokeLinecap="round" strokeDasharray={`${filled} ${circumference}`} transform="rotate(-90 56 56)" />
         </svg>
-        <div className="ring-center"><strong>{used > 0 && percent < 1 ? "<1%" : `${percent}%`}</strong></div>
+        <div className="ring-center"><strong>{percentLabel}</strong></div>
       </div>
       <figcaption>
         <span className="ring-label">{icon}{label}</span>
-        <span className="ring-values">{formatSize(used)} <small>/ {formatSize(limit)}</small></span>
-        {severity !== "ok" && <em className="ring-status"><AlertTriangle aria-hidden="true" />{severity === "critical" ? "거의 찼습니다" : "70%를 넘었습니다"}</em>}
-        {note && <span className="ring-note">{note}</span>}
+        <span className="ring-values">{formatSize(used)}<small> / {formatSize(limit)}</small></span>
+        {severity !== "ok"
+          ? <em className="ring-status"><AlertTriangle aria-hidden="true" />{severity === "critical" ? "거의 찼습니다" : "70%를 넘었습니다"}</em>
+          : note && <span className="ring-note">{note}</span>}
       </figcaption>
     </figure>
   );
@@ -73,28 +83,33 @@ function RingMeter({ label, used, limit, icon, note }: { label: string; used: nu
 function UsagePanel({ usage, loading, demo, onRefresh }: { usage: UsageSnapshot | null; loading: boolean; demo: boolean; onRefresh: () => void }) {
   const projectRef = supabaseConfig.url.match(/https?:\/\/([^.]+)\./)?.[1];
   const dashboard = projectRef ? `https://supabase.com/dashboard/project/${projectRef}` : "https://supabase.com/dashboard";
+  const stats = usage ? [
+    { label: "보드", value: usage.boardCount },
+    { label: "카드", value: usage.cardCount },
+    { label: "첨부 파일", value: usage.storageFiles },
+    { label: "댓글", value: usage.commentCount },
+  ] : [];
   return (
     <section className="usage-panel" aria-label="무료 사용량">
-      <div className="usage-head">
-        <Gauge aria-hidden="true" />
-        <strong>무료 사용량</strong>
-        <span className="usage-time">{usage ? `${formatUpdated(usage.measuredAt)} 기준` : loading ? "세는 중" : ""}{usage?.partial ? " · 일부만 셈" : ""}</span>
-        <button type="button" className="text-button" onClick={onRefresh} disabled={loading} aria-label="사용량 새로 고침"><RefreshCw aria-hidden="true" className={loading ? "spin" : undefined} />새로 고침</button>
-      </div>
+      <header className="usage-head">
+        <span className="usage-icon" aria-hidden="true"><Gauge /></span>
+        <div className="usage-title">
+          <strong>무료 사용량</strong>
+          <span>{usage ? `${formatUpdated(usage.measuredAt)} 기준${usage.partial ? " · 일부만 셈" : ""}` : loading ? "세는 중" : "아직 세지 않음"}</span>
+        </div>
+        <button type="button" className="usage-refresh" onClick={onRefresh} disabled={loading} aria-label="사용량 새로 고침" title="새로 고침"><RefreshCw aria-hidden="true" className={loading ? "spin" : undefined} /></button>
+      </header>
       {usage ? (
         <>
           <div className="usage-meters">
             <RingMeter label="파일 저장 공간" used={usage.storageBytes} limit={FREE_STORAGE_LIMIT} icon={<HardDrive aria-hidden="true" />} note={`이미지·PDF ${usage.storageFiles.toLocaleString()}개`} />
-            <RingMeter label="보드 데이터" used={usage.dbBytes} limit={FREE_DB_LIMIT} icon={<Database aria-hidden="true" />} note="카드 내용과 댓글이 차지하는 크기" />
+            <RingMeter label="보드 데이터" used={usage.dbBytes} limit={FREE_DB_LIMIT} icon={<Database aria-hidden="true" />} note="카드 내용과 댓글" />
           </div>
           <dl className="usage-stats">
-            <div><dt>보드</dt><dd>{usage.boardCount.toLocaleString()}</dd></div>
-            <div><dt>카드</dt><dd>{usage.cardCount.toLocaleString()}</dd></div>
-            <div><dt>첨부 파일</dt><dd>{usage.storageFiles.toLocaleString()}</dd></div>
-            <div><dt>댓글</dt><dd>{usage.commentCount.toLocaleString()}</dd></div>
+            {stats.map((item) => <div key={item.label}><dt>{item.label}</dt><dd>{item.value.toLocaleString()}</dd></div>)}
           </dl>
           <p className="usage-foot">
-            {demo ? "로컬 데모 모드라 이 브라우저에 저장된 양입니다. " : ""}한 달 전송량(무료 5GB)은 여기서 셀 수 없어 <a href={dashboard} target="_blank" rel="noreferrer">Supabase 대시보드<ExternalLink aria-hidden="true" /></a>에서 확인하세요.
+            {demo ? "로컬 데모 모드라 이 브라우저에 저장된 양입니다. " : ""}한 달 전송량(무료 5GB)은 여기서 셀 수 없습니다. <a href={dashboard} target="_blank" rel="noreferrer">Supabase 대시보드에서 확인<ExternalLink aria-hidden="true" /></a>
           </p>
         </>
       ) : (

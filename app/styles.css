@@ -466,40 +466,45 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 }
 
 /* 홈 화면: 무료 사용량 대시보드 */
-.usage-panel { margin-bottom: 18px; padding: 14px 16px 15px; border: 1px solid #d7dfe6; border-radius: 16px; background: rgba(255,255,255,.85); box-shadow: 0 1px 3px rgba(20,30,38,.06); }
-.usage-head { display: flex; align-items: center; gap: 8px; }
-.usage-head > svg { width: 16px; color: var(--primary); }
-.usage-head strong { font-size: 14px; letter-spacing: -.01em; }
-.usage-time { color: #7a868e; font-size: 12px; }
-.usage-head .text-button { margin-left: auto; }
-.usage-head .text-button:disabled { opacity: .6; cursor: default; }
-.usage-meters { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; margin-top: 12px; }
-.ring-meter { display: flex; align-items: center; gap: 14px; margin: 0; padding: 12px 14px; border: 1px solid var(--border); border-radius: 14px; background: white; }
-.ring-graphic { position: relative; width: 96px; height: 96px; flex: none; }
-.ring-graphic svg { width: 100%; height: 100%; }
+.usage-panel { margin-bottom: 18px; padding: 18px 20px 16px; border: 1px solid #d7dfe6; border-radius: 18px; background: rgba(255,255,255,.88); box-shadow: 0 1px 3px rgba(20,30,38,.06); }
+.usage-head { display: flex; align-items: center; gap: 12px; }
+.usage-icon { width: 34px; height: 34px; display: grid; place-items: center; flex: none; border-radius: 11px; background: #e9f0ff; color: var(--primary); }
+.usage-icon svg { width: 18px; }
+.usage-title { min-width: 0; display: grid; gap: 1px; }
+.usage-title strong { font-size: 15px; letter-spacing: -.01em; }
+.usage-title span { color: #7a868e; font-size: 12px; }
+.usage-refresh { width: 36px; height: 36px; display: grid; place-items: center; margin-left: auto; border: 1px solid var(--border); border-radius: 10px; background: white; color: #5a6871; cursor: pointer; }
+.usage-refresh:hover { border-color: #aebbc4; background: #f7f9fa; color: #25333c; }
+.usage-refresh:disabled { opacity: .6; cursor: default; }
+.usage-refresh svg { width: 16px; }
+.usage-meters { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; margin-top: 16px; }
+.ring-meter { display: flex; align-items: center; gap: 16px; margin: 0; padding: 14px 16px; border: 1px solid #e3e8ed; border-radius: 14px; background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%); }
+.ring-graphic { position: relative; width: 88px; height: 88px; flex: none; }
+.ring-graphic svg { width: 88px; height: 88px; display: block; }
 /* 빈 부분은 같은 파랑 계열의 연한 단계, 채움은 사용량 단계에 따라 파랑 → 주황 → 빨강 */
 .ring-track { fill: none; stroke: #dbe7fd; stroke-width: 10; }
-.ring-fill { fill: none; stroke: var(--primary); stroke-width: 10; stroke-linecap: round; transition: stroke-dasharray 500ms ease; }
-.ring-meter.is-warning .ring-fill { stroke: #f59e0b; }
+.ring-fill { fill: none; stroke: var(--primary); stroke-width: 10; stroke-linecap: round; transition: stroke-dasharray 600ms cubic-bezier(.2,.8,.2,1); }
+.ring-meter.is-warning .ring-fill { stroke: #e08a00; }
 .ring-meter.is-warning .ring-track { stroke: #fdebc8; }
 .ring-meter.is-critical .ring-fill { stroke: var(--destructive); }
 .ring-meter.is-critical .ring-track { stroke: #f9d5d1; }
 .ring-center { position: absolute; inset: 0; display: grid; place-items: center; }
-.ring-center strong { font-size: 20px; letter-spacing: -.02em; color: #172027; }
-.ring-meter figcaption { min-width: 0; display: grid; gap: 3px; }
+.ring-center strong { font-size: 18px; letter-spacing: -.02em; color: #172027; }
+.ring-meter figcaption { min-width: 0; display: grid; gap: 4px; }
 .ring-label { display: inline-flex; align-items: center; gap: 6px; color: #5b6870; font-size: 12px; font-weight: 700; }
-.ring-label svg { width: 14px; }
-.ring-values { font-size: 18px; font-weight: 800; letter-spacing: -.02em; color: #172027; }
-.ring-values small { color: #7a868e; font-size: 12px; font-weight: 650; }
+.ring-label svg { width: 14px; color: #7a868e; }
+.ring-values { font-size: 20px; font-weight: 800; letter-spacing: -.02em; color: #172027; line-height: 1.2; }
+.ring-values small { color: #8a969e; font-size: 12px; font-weight: 650; }
 .ring-status { display: inline-flex; align-items: center; gap: 4px; color: #9a5b00; font-size: 12px; font-style: normal; font-weight: 750; }
 .ring-meter.is-critical .ring-status { color: var(--destructive); }
 .ring-status svg { width: 13px; }
 .ring-note { color: #7a868e; font-size: 12px; }
-.usage-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 12px 0 0; }
-.usage-stats div { padding: 9px 12px; border-radius: 12px; background: #f4f6f8; }
-.usage-stats dt { color: #6b7881; font-size: 11px; font-weight: 700; }
-.usage-stats dd { margin: 2px 0 0; font-size: 18px; font-weight: 800; letter-spacing: -.02em; }
-.usage-foot { margin: 10px 0 0; color: #7a868e; font-size: 12px; line-height: 1.5; }
+.usage-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 14px 0 0; padding: 12px 0 0; border-top: 1px solid #e9edf1; }
+.usage-stats div { min-width: 0; padding: 2px 16px; border-left: 1px solid #e9edf1; }
+.usage-stats div:first-child { padding-left: 4px; border-left: 0; }
+.usage-stats dt { color: #7a868e; font-size: 11px; font-weight: 700; }
+.usage-stats dd { margin: 2px 0 0; font-size: 20px; font-weight: 800; letter-spacing: -.02em; color: #172027; }
+.usage-foot { margin: 12px 0 0; color: #7a868e; font-size: 12px; line-height: 1.5; }
 .usage-foot a { display: inline-flex; align-items: center; gap: 3px; color: #315fbc; font-weight: 700; text-decoration: none; }
 .usage-foot a svg { width: 12px; }
 
@@ -563,9 +568,9 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   .demo-banner + .home { height: calc(100vh - 110px); }
   .home-grid { grid-template-columns: 1fr; }
   .share-list { padding: 12px 12px 13px; }
-  .usage-panel { padding: 12px 12px 13px; }
-  .usage-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .ring-graphic { width: 84px; height: 84px; }
+  .usage-panel { padding: 14px 14px 13px; }
+  .usage-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 10px; }
+  .usage-stats div:nth-child(3) { padding-left: 4px; border-left: 0; }
   .share-list li { gap: 7px; }
   .share-list-title { flex: 1 1 100%; }
   .share-list li input { flex: 1 1 100%; }

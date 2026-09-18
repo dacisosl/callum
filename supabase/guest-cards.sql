@@ -86,21 +86,27 @@ security definer
 set search_path = public
 as $$
 declare
-  target public.boards%rowtype;
+  target jsonb;
+  board_id text;
+  board_data jsonb;
   new_card jsonb;
   card_total int;
   now_ms bigint := (extract(epoch from now()) * 1000)::bigint;
 begin
-  select * into target
-  from public.boards b
-  where b.share_enabled = true
-    and token <> ''
-    and b.share_token = token
-    and coalesce((b.data ->> 'guestPostEnabled')::boolean, false)
-  limit 1;
-  if not found then
+  target := (
+    select to_jsonb(b)
+    from public.boards b
+    where b.share_enabled = true
+      and token <> ''
+      and b.share_token = token
+      and coalesce((b.data ->> 'guestPostEnabled')::boolean, false)
+    limit 1
+  );
+  if target is null then
     raise exception '이 보드에는 카드를 올릴 수 없습니다.';
   end if;
+  board_id := target ->> 'id';
+  board_data := target -> 'data';
 
   if card_id is null or length(card_id) = 0 or length(card_id) > 80 then
     raise exception '카드 ID가 올바르지 않습니다.';
@@ -112,14 +118,14 @@ begin
     raise exception '카드 내용이 너무 깁니다.';
   end if;
   if not exists (
-    select 1 from jsonb_array_elements(coalesce(target.data -> 'columns', '[]'::jsonb)) col
+    select 1 from jsonb_array_elements(coalesce(board_data -> 'columns', '[]'::jsonb)) col
     where col ->> 'id' = target_column
   ) then
     raise exception '칼럼을 찾을 수 없습니다.';
   end if;
   if exists (
     select 1
-    from jsonb_array_elements(coalesce(target.data -> 'columns', '[]'::jsonb)) col,
+    from jsonb_array_elements(coalesce(board_data -> 'columns', '[]'::jsonb)) col,
          jsonb_array_elements(coalesce(col -> 'cards', '[]'::jsonb)) card
     where card ->> 'id' = card_id
   ) then
@@ -127,9 +133,11 @@ begin
   end if;
 
   -- 공개 쓰기 경로이므로 보드 하나가 무한히 커지지 않도록 상한을 둡니다.
-  select count(*) into card_total
-  from jsonb_array_elements(coalesce(target.data -> 'columns', '[]'::jsonb)) col,
-       jsonb_array_elements(coalesce(col -> 'cards', '[]'::jsonb)) card;
+  card_total := (
+    select count(*)
+    from jsonb_array_elements(coalesce(board_data -> 'columns', '[]'::jsonb)) col,
+         jsonb_array_elements(coalesce(col -> 'cards', '[]'::jsonb)) card
+  );
   if card_total >= 2000 then
     raise exception '이 보드에는 더 이상 카드를 올릴 수 없습니다.';
   end if;
@@ -138,7 +146,7 @@ begin
     'id', card_id,
     'title', left(btrim(card_title), 120),
     'body', left(btrim(coalesce(card_body, '')), 3000),
-    'attachments', public.clean_guest_attachments(target.id, card_attachments),
+    'attachments', public.clean_guest_attachments(board_id, card_attachments),
     'link', card_link,
     'guestAuthor', left(coalesce(nullif(btrim(author), ''), '익명'), 40),
     'editKeyHash', public.guest_edit_hash(card_edit_key),
@@ -164,7 +172,7 @@ begin
         )
       ) || jsonb_build_object('updatedAt', now_ms),
       updated_at = now_ms
-  where b.id = target.id;
+  where b.id = board_id;
 
   return new_card;
 end;
@@ -189,27 +197,35 @@ security definer
 set search_path = public
 as $$
 declare
-  target public.boards%rowtype;
+  target jsonb;
+  board_id text;
+  board_data jsonb;
   existing jsonb;
   updated jsonb;
   now_ms bigint := (extract(epoch from now()) * 1000)::bigint;
 begin
-  select * into target
-  from public.boards b
-  where b.share_enabled = true
-    and token <> ''
-    and b.share_token = token
-    and coalesce((b.data ->> 'guestPostEnabled')::boolean, false)
-  limit 1;
-  if not found then
+  target := (
+    select to_jsonb(b)
+    from public.boards b
+    where b.share_enabled = true
+      and token <> ''
+      and b.share_token = token
+      and coalesce((b.data ->> 'guestPostEnabled')::boolean, false)
+    limit 1
+  );
+  if target is null then
     raise exception '이 보드의 글은 수정할 수 없습니다.';
   end if;
+  board_id := target ->> 'id';
+  board_data := target -> 'data';
 
-  select card into existing
-  from jsonb_array_elements(coalesce(target.data -> 'columns', '[]'::jsonb)) col,
-       jsonb_array_elements(coalesce(col -> 'cards', '[]'::jsonb)) card
-  where card ->> 'id' = card_id
-  limit 1;
+  existing := (
+    select card
+    from jsonb_array_elements(coalesce(board_data -> 'columns', '[]'::jsonb)) col,
+         jsonb_array_elements(coalesce(col -> 'cards', '[]'::jsonb)) card
+    where card ->> 'id' = card_id
+    limit 1
+  );
   if existing is null then
     raise exception '글을 찾을 수 없습니다.';
   end if;
@@ -230,7 +246,7 @@ begin
     (existing - 'link') || jsonb_build_object(
       'title', left(btrim(card_title), 120),
       'body', left(btrim(coalesce(card_body, '')), 3000),
-      'attachments', public.clean_guest_attachments(target.id, card_attachments),
+      'attachments', public.clean_guest_attachments(board_id, card_attachments),
       'link', card_link,
       'updatedAt', now_ms
     )
@@ -255,7 +271,7 @@ begin
         )
       ) || jsonb_build_object('updatedAt', now_ms),
       updated_at = now_ms
-  where b.id = target.id;
+  where b.id = board_id;
 
   return updated;
 end;

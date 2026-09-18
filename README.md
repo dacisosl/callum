@@ -94,8 +94,15 @@ Vercel은 배포마다 `callum-xxxxxxxx-....vercel.app` 같은 **배포 전용 �
 **`supabase/fix-guest-uploads.sql`** 을 SQL Editor에 붙여 넣고 실행하세요. 이 문제만 고치는 짧은
 스크립트라 붙여넣기가 잘릴 걱정이 없습니다. `supabase/schema.sql` 전체를 실행해도 같은 내용이 들어갑니다.
 
-`schema.sql`이 길어 붙여넣기 도중 잘리면 `unterminated dollar-quoted string` 오류가 납니다.
-파일이 잘못된 것이 아니라 편집기에 일부만 들어간 것이니, 짧은 위 파일을 쓰거나 전체를 다시 붙여 넣으세요.
+### `unterminated dollar-quoted string` 오류가 날 때
+
+Supabase 대시보드의 SQL Editor는 `select ... into 변수` 를 "새 표를 만드는 SELECT INTO"로 오해해,
+함수 본문 한가운데에 `ALTER TABLE 변수 ENABLE ROW LEVEL SECURITY;` 를 몰래 끼워 넣습니다.
+그러면 `$$` 로 감싼 본문이 중간에서 끊겨 이 오류가 납니다. 오류 메시지 안에 그 `ALTER TABLE` 줄이
+같이 보이면 이 경우입니다.
+
+그래서 이 저장소의 함수들은 `select ... into` 대신 `변수 := (select ...)` 대입문만 씁니다.
+새 함수를 추가할 때도 같은 규칙을 지켜야 합니다.
 
 원인은 이렇습니다. 예전 정책은 손님 업로드를 허용할지 판단할 때 정책 안에서 `boards` 테이블을
 직접 조회했습니다. 그런데 정책 안의 조회에도 `boards`의 RLS가 그대로 걸리고, `boards`는

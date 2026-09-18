@@ -267,7 +267,7 @@ export async function removeComment(commentId: string) {
 // 공유 링크로 들어온 사람이 카드를 올립니다. 보드의 글쓰기 허용이 켜져 있을 때만 통과합니다.
 export async function addSharedCard(
   token: string,
-  card: { id: string; columnId: string; title: string; body: string; link?: LinkPreviewData; author: string; attachments: Attachment[] },
+  card: { id: string; columnId: string; title: string; body: string; link?: LinkPreviewData; author: string; attachments: Attachment[]; editKey: string },
 ): Promise<BoardCard> {
   const { data, error } = await supabase().rpc("add_shared_card", {
     token,
@@ -277,6 +277,25 @@ export async function addSharedCard(
     card_body: card.body,
     card_link: card.link ?? null,
     author: card.author,
+    card_attachments: card.attachments,
+    card_edit_key: card.editKey,
+  });
+  if (error) throw translate(error);
+  return data as BoardCard;
+}
+
+// 손님이 자기가 올린 글을 고칩니다. 글을 올릴 때 받은 열쇠가 맞아야만 서버가 통과시킵니다.
+export async function updateSharedCard(
+  token: string,
+  card: { id: string; title: string; body: string; link?: LinkPreviewData; attachments: Attachment[]; editKey: string },
+): Promise<BoardCard> {
+  const { data, error } = await supabase().rpc("update_shared_card", {
+    token,
+    card_id: card.id,
+    card_title: card.title,
+    card_body: card.body,
+    card_link: card.link ?? null,
+    edit_key: card.editKey,
     card_attachments: card.attachments,
   });
   if (error) throw translate(error);

@@ -68,6 +68,9 @@ export interface BoardCard {
   authorName?: string;
   // 공유 링크로 들어온 사람이 올린 카드면 작성자 이름이 들어갑니다.
   guestAuthor?: string;
+  // 손님이 자기 글을 고칠 때 쓰는 열쇠의 지문. 열쇠 자체는 글을 올린 브라우저에만 저장되고
+  // 여기에는 지문만 남으므로, 공유 링크로 이 값을 봐도 남의 글은 고칠 수 없습니다.
+  editKeyHash?: string;
   createdAt: number;
   updatedAt: number;
 }

@@ -108,6 +108,31 @@ import {
 const LOCAL_KEY = "pillar-boards-v3";
 const LOCAL_COMMENTS_KEY = "pillar-comments-v1";
 const COMMENT_NAME_KEY = "pillar-comment-name";
+// 손님이 올린 글을 나중에 고칠 때 쓰는 비밀 열쇠. 글을 올린 브라우저에만 저장되고 서버에는
+// 지문만 남습니다. 브라우저 데이터를 지우거나 다른 기기로 옮기면 수정할 수 없습니다.
+const CARD_KEY_STORE = "pillar-card-keys-v1";
+
+function readCardKeys(): Record<string, string> {
+  try { return JSON.parse(localStorage.getItem(CARD_KEY_STORE) ?? "{}") as Record<string, string>; } catch { return {}; }
+}
+
+function cardEditKey(cardId: string) {
+  try { return readCardKeys()[cardId] ?? ""; } catch { return ""; }
+}
+
+function rememberCardEditKey(cardId: string, key: string) {
+  try {
+    const keys = readCardKeys();
+    keys[cardId] = key;
+    // 너무 쌓이지 않도록 최근 500개만 남깁니다.
+    const entries = Object.entries(keys).slice(-500);
+    localStorage.setItem(CARD_KEY_STORE, JSON.stringify(Object.fromEntries(entries)));
+  } catch { /* 저장 공간이 막혀 있으면 이번 글은 수정할 수 없습니다. */ }
+}
+
+function makeEditKey() {
+  try { return crypto.randomUUID() + crypto.randomUUID(); } catch { return `${makeId("key")}-${Math.random().toString(36).slice(2)}`; }
+}
 // 파일당 상한. supabase/schema.sql 의 버킷 file_size_limit 과 같은 값이어야 합니다.
 const MAX_CLOUD_FILE = 30 * 1024 * 1024;
 const MAX_DEMO_FILE = 2 * 1024 * 1024;
@@ -320,6 +345,16 @@ function findCard(board: BoardData, id: string) {
     if (index >= 0) return { column, columnIndex: board.columns.indexOf(column), index };
   }
   return null;
+}
+
+// 손님이 올리거나 고친 카드를 보드 목록에 반영합니다. 새 글은 칼럼 맨 앞에, 수정은 제자리에 둡니다.
+function applyGuestCard(boards: BoardData[], boardId: string, columnId: string, card: BoardCard, editing: boolean): BoardData[] {
+  return boards.map((board) => board.id !== boardId ? board : {
+    ...board,
+    columns: board.columns.map((column) => editing
+      ? { ...column, cards: column.cards.map((item) => item.id === card.id ? card : item) }
+      : column.id === columnId ? { ...column, cards: [card, ...column.cards] } : column),
+  });
 }
 
 // 카드를 다른 자리로 옮긴 새 보드를 만듭니다. 원래 객체는 건드리지 않고 바뀐 칼럼만 새로 만듭니다.
@@ -1256,39 +1291,56 @@ export function BoardApp() {
     setViewerCardId(card.id);
   }
   // 편집 모달. 뷰어가 열린 상태에서 부르면 뷰어는 잠시 숨겨지고 편집을 마치면 다시 나타납니다.
+  // 손님은 자기가 올린 글만 열 수 있습니다.
   function openCard(columnId: string, card: BoardCard) {
+    if (readOnly && !canEditGuestCard(card)) return;
     setDraft({ ...structuredClone(card), columnId });
+    if (readOnly && card.guestAuthor) setCommentAuthor(card.guestAuthor);
     setLinkInput(card.link?.url ?? "");
     setEditorOpen(true);
   }
+  // 손님이 자기가 올린 글을 고칠 수 있는지. 그 글을 올린 브라우저에만 열쇠가 있습니다.
+  function canEditGuestCard(card: BoardCard) {
+    return guestPosting && Boolean(card.guestAuthor) && Boolean(card.editKeyHash) && Boolean(cardEditKey(card.id));
+  }
+
   // 공유 손님이 올리는 카드는 서버 함수가 보드 데이터에 직접 덧붙입니다.
+  // 고칠 때를 대비해 비밀 열쇠를 함께 보내고, 그 열쇠는 이 브라우저에만 남깁니다.
   async function saveGuestCard(link: LinkPreviewData | undefined) {
     if (!draft || !activeBoard || !sharedToken) return;
     const author = commentAuthor.trim().slice(0, 40) || "익명";
     // 질문 섹션에서는 제목이 선택이라, 비워 두면 쓴 사람 이름이 카드 제목이 됩니다.
-    const card = { id: makeId("card"), columnId: draft.columnId, title: draft.title.trim() || author, body: draft.body.trim(), link, author, attachments: draft.attachments };
+    const title = draft.title.trim() || author;
+    const body = draft.body.trim();
+    const editing = Boolean(draft.id);
+    const cardId = draft.id ?? makeId("card");
+    const editKey = editing ? cardEditKey(cardId) : makeEditKey();
+    if (editing && !editKey) { toast.error("이 글을 수정할 권한이 없습니다. 글을 올린 브라우저에서만 고칠 수 있습니다."); return; }
     setUploading(true);
     try {
       let saved: BoardCard;
       if (supabaseConfigured) {
-        saved = await (await import("@/lib/supabase-client")).addSharedCard(sharedToken, card);
+        const client = await import("@/lib/supabase-client");
+        saved = editing
+          ? await client.updateSharedCard(sharedToken, { id: cardId, title, body, link, attachments: draft.attachments, editKey })
+          : await client.addSharedCard(sharedToken, { id: cardId, columnId: draft.columnId, title, body, link, author, attachments: draft.attachments, editKey });
       } else {
+        // 데모 모드는 서버가 없어 열쇠를 그대로 지문 자리에 넣고 브라우저 안에서만 확인합니다.
         const now = nowMs();
-        saved = { id: card.id, title: card.title, body: card.body, attachments: card.attachments, link: card.link, guestAuthor: author, createdAt: now, updatedAt: now };
-        const stored = readLocalBoards().map((board) => board.id === activeBoard.id
-          ? { ...board, columns: board.columns.map((column) => column.id === card.columnId ? { ...column, cards: [saved, ...column.cards] } : column) }
-          : board);
-        localStorage.setItem(LOCAL_KEY, JSON.stringify(stored));
+        const before = editing ? findCard(activeBoard, cardId) : null;
+        const previous = before ? before.column.cards[before.index] : null;
+        saved = { ...(previous ?? {}), id: cardId, title, body, attachments: draft.attachments, link, guestAuthor: previous?.guestAuthor ?? author, editKeyHash: previous?.editKeyHash ?? editKey, createdAt: previous?.createdAt ?? now, updatedAt: now };
+        localStorage.setItem(LOCAL_KEY, JSON.stringify(applyGuestCard(readLocalBoards(), activeBoard.id, draft.columnId, saved, editing)));
       }
-      setBoards((current) => current.map((board) => board.id === activeBoard.id
-        ? { ...board, columns: board.columns.map((column) => column.id === card.columnId ? { ...column, cards: [saved, ...column.cards] } : column) }
-        : board));
+      if (!editing) rememberCardEditKey(cardId, editKey);
+      setBoards((current) => applyGuestCard(current, activeBoard.id, draft.columnId, saved, editing));
       localStorage.setItem(COMMENT_NAME_KEY, author === "익명" ? "" : author);
       setEditorOpen(false);
       setDraft(null);
-      toast.success("카드를 올렸습니다.");
+      setViewerCardId(null);
+      toast.success(editing ? "글을 수정했습니다." : "카드를 올렸습니다.");
     } catch (error) {
-      toast.error(error instanceof Error && error.message ? error.message : "카드를 올리지 못했습니다.");
+      toast.error(error instanceof Error && error.message ? error.message : editing ? "글을 수정하지 못했습니다." : "카드를 올리지 못했습니다.");
     } finally {
       setUploading(false);
     }
@@ -1686,10 +1738,11 @@ export function BoardApp() {
           const text = event.clipboardData.getData("text").trim();
           if (/^https?:\/\//i.test(text) && !linkInput) setLinkInput(firstUrl(text));
         }}>
-          <DialogHeader><DialogTitle>{draft?.id ? (draftQuestion ? "답변 수정" : "카드 수정") : (draftQuestion ? "답변 쓰기" : "새 카드")}</DialogTitle><DialogDescription>{draftQuestion ? "아래 질문을 읽고 답을 적어 주세요. 글, 링크, 이미지, PDF를 담을 수 있습니다." : guestPosting ? "이 보드에 카드를 올립니다. 글, 링크, 이미지, PDF를 담을 수 있습니다." : "글, 링크, 이미지, PDF를 한 카드에 담을 수 있습니다."}</DialogDescription></DialogHeader>
+          <DialogHeader><DialogTitle>{draft?.id ? (guestPosting ? "내 글 수정" : draftQuestion ? "답변 수정" : "카드 수정") : (draftQuestion ? "답변 쓰기" : "새 카드")}</DialogTitle><DialogDescription>{draftQuestion ? "아래 질문을 읽고 답을 적어 주세요. 글, 링크, 이미지, PDF를 담을 수 있습니다." : guestPosting ? "이 보드에 카드를 올립니다. 글, 링크, 이미지, PDF를 담을 수 있습니다." : "글, 링크, 이미지, PDF를 한 카드에 담을 수 있습니다."}</DialogDescription></DialogHeader>
           {draft && <div className="editor-body">
             {draftQuestion && <section className="editor-question"><div className="section-label"><MessageCircleQuestion aria-hidden="true" />질문</div><p>{draftQuestion}</p></section>}
-            {guestPosting && <label>이름<input value={commentAuthor} maxLength={40} onChange={(event) => setCommentAuthor(event.target.value)} placeholder="비워 두면 익명" /></label>}
+            {guestPosting && <label>이름<input value={commentAuthor} maxLength={40} readOnly={Boolean(draft?.id)} onChange={(event) => setCommentAuthor(event.target.value)} placeholder="비워 두면 익명" /></label>}
+            {guestPosting && draft?.id && <p className="editor-note">이 글을 올린 브라우저에서만 수정할 수 있습니다. 이름과 올린 시각은 그대로 유지됩니다.</p>}
             <label>{draftQuestion ? "제목 (선택)" : "제목"}<input value={draft.title} readOnly={readOnly && !guestPosting} maxLength={120} onChange={(event) => setDraft({ ...draft, title: event.target.value })} placeholder={draftQuestion ? "비워 두면 이름이 제목이 됩니다" : "무엇을 모아둘까요?"} /></label>
             <label>{draftQuestion ? "답변" : "내용"}<textarea value={draft.body} readOnly={readOnly && !guestPosting} maxLength={3000} onChange={(event) => setDraft({ ...draft, body: event.target.value })} placeholder={draftQuestion ? "질문에 대한 답을 적어 주세요" : "메모를 입력하세요"} /></label>
             {!readOnly && <section><div className="section-label"><Palette />카드 색</div><div className="tone-swatches" role="radiogroup" aria-label="카드 색">{CARD_TONES.map((tone) => <button key={tone.value} type="button" role="radio" aria-checked={(draft.tone ?? "default") === tone.value} className={`tone-swatch card-tone-${tone.value}${(draft.tone ?? "default") === tone.value ? " is-active" : ""}`} onClick={() => setDraft({ ...draft, tone: tone.value })} title={tone.label} aria-label={tone.label} />)}</div></section>}
@@ -1698,7 +1751,7 @@ export function BoardApp() {
               {draft.attachments.length > 0 && <div className="attachment-grid">{draft.attachments.map((attachment) => <article className="attachment-item" key={attachment.id}>{attachment.kind === "image" ? <img src={attachment.url} alt={attachment.name} /> : attachment.thumbnailUrl ? <img src={attachment.thumbnailUrl} alt={attachment.name} /> : <span className="attachment-icon" aria-hidden="true"><FileText /></span>}<div><strong>{attachment.name}</strong><span>{attachment.kind === "pdf" ? "PDF" : "이미지"} · {formatBytes(attachment.size)}</span></div><a href={attachment.url} target="_blank" rel="noreferrer" aria-label={`${attachment.name} 열기`}><ExternalLink /></a>{(!readOnly || guestPosting) && <button onClick={() => deleteDraftAttachment(attachment)} aria-label={`${attachment.name} 삭제`}><X /></button>}</article>)}</div>}
             </section>
           </div>}
-          <DialogFooter><button className="secondary-button" onClick={() => setEditorOpen(false)}>{readOnly && !guestPosting ? "닫기" : "취소"}</button>{(!readOnly || guestPosting) && <button className="primary-button" onClick={() => void saveDraft()} disabled={uploading}>{uploading && <LoaderCircle className="spin" aria-hidden="true" />}{draftQuestion && !draft?.id ? "답변 올리기" : guestPosting ? "올리기" : "저장"}</button>}</DialogFooter>
+          <DialogFooter><button className="secondary-button" onClick={() => setEditorOpen(false)}>{readOnly && !guestPosting ? "닫기" : "취소"}</button>{(!readOnly || guestPosting) && <button className="primary-button" onClick={() => void saveDraft()} disabled={uploading}>{uploading && <LoaderCircle className="spin" aria-hidden="true" />}{guestPosting && draft?.id ? "수정 저장" : draftQuestion && !draft?.id ? "답변 올리기" : guestPosting ? "올리기" : "저장"}</button>}</DialogFooter>
         </DialogContent>
       </Dialog>
 
@@ -1710,6 +1763,7 @@ export function BoardApp() {
               <DialogTitle className="viewer-title">{viewerCard.title}</DialogTitle>
               <DialogDescription className="sr-only">카드 내용을 크게 봅니다.</DialogDescription>
               {!readOnly && <button className="secondary-button viewer-edit" onClick={() => openCard(viewerTarget.column.id, viewerCard)}><Pencil aria-hidden="true" />편집</button>}
+              {readOnly && canEditGuestCard(viewerCard) && <button className="secondary-button viewer-edit" onClick={() => openCard(viewerTarget.column.id, viewerCard)}><Pencil aria-hidden="true" />내 글 수정</button>}
             </DialogHeader>
             <div className="viewer-body">
               {viewerQuestion && <section className="viewer-question"><span className="section-label"><MessageCircleQuestion aria-hidden="true" />{viewerTarget.column.title} 칼럼의 질문</span><p>{viewerQuestion}</p></section>}

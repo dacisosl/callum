@@ -69,6 +69,25 @@ Vercel은 배포마다 `callum-xxxxxxxx-....vercel.app` 같은 **배포 전용 �
 
 주인 화면은 보드 전체를 통째로 저장합니다. 예전에는 주인이 보드를 열어 둔 사이 손님이 올린 카드가 다음 저장 때 덮어써져 사라졌습니다. 이제 글쓰기가 켜진 보드는 저장 직전에 서버 쪽 데이터를 읽어, 내 화면에 없는 손님 카드를 되살려 함께 저장합니다(`lib/supabase-client.ts`의 `withGuestCards`). 주인이 방금 지운 카드는 되살아나지 않습니다.
 
+### 손님이 이미지·PDF를 못 올릴 때
+
+공유 설정에서 글쓰기를 켰는데도 손님의 파일 업로드가 거부된다면, 저장소 정책이 옛 버전입니다.
+`supabase/schema.sql`을 다시 통째로 실행하세요.
+
+원인은 이렇습니다. 예전 정책은 손님 업로드를 허용할지 판단할 때 정책 안에서 `boards` 테이블을
+직접 조회했습니다. 그런데 정책 안의 조회에도 `boards`의 RLS가 그대로 걸리고, `boards`는
+로그인한 주인만 읽을 수 있습니다. 손님은 익명(anon)이라 조회 결과가 언제나 0건이 되어,
+공유와 글쓰기를 아무리 켜 두어도 업로드가 전부 거부되었습니다. 지금은 RLS를 우회하는
+`board_accepts_guest_files` 함수(security definer)로 확인하므로 정상 동작합니다.
+
+정책이 최신인지 확인하려면 SQL Editor에서 실행해 보세요. `true`가 나오면 정상입니다.
+
+```sql
+select public.board_accepts_guest_files('여기에_보드_ID');
+```
+
+보드 ID는 `select id, title, share_enabled from public.boards;` 로 확인합니다.
+
 ## Supabase 준비
 
 1. https://supabase.com 에서 프로젝트를 만듭니다. 리전은 `Northeast Asia (Seoul)`을 권장합니다.

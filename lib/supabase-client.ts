@@ -23,8 +23,9 @@ const messages: Record<string, string> = {
   "Invalid login credentials": "이메일 또는 비밀번호가 올바르지 않습니다.",
   "Email not confirmed": "이메일 인증이 필요합니다. 받은 메일의 링크를 눌러 주세요.",
   "Email rate limit exceeded": "잠시 후 다시 시도해 주세요.",
-  // 저장소 정책에 막힌 업로드(공유가 꺼졌거나 글쓰기 허용이 꺼진 보드)
-  "new row violates row-level security policy": "이 보드에는 파일을 올릴 수 없습니다. 공유나 글쓰기 허용이 꺼져 있을 수 있습니다.",
+  // 저장소 정책에 막힌 업로드. 보드 설정이 꺼져 있거나, 보드 주인이 supabase/schema.sql 의
+  // 최신 손님 업로드 정책을 아직 실행하지 않은 경우입니다.
+  "new row violates row-level security policy": "파일을 올릴 수 없습니다. 보드 주인에게 공유 설정의 글쓰기 허용과 Supabase 첨부 정책을 확인해 달라고 알려 주세요.",
   "The object exceeded the maximum allowed size": "파일이 너무 큽니다. 30MB 이하만 올릴 수 있습니다.",
 };
 

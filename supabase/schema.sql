@@ -81,6 +81,29 @@ create policy "attachments owner delete" on storage.objects
 
 -- 공유받은 사람의 첨부: guest/{보드ID}/... 경로에만, 그 보드가 공유 중이고 글쓰기가 켜져 있을 때만 올릴 수 있습니다.
 -- 파일 크기·형식 제한은 버킷 설정이 맡습니다. 주인은 자기 보드의 손님 파일을 읽고 지울 수 있습니다.
+--
+-- 중요: 이 검사를 정책 안에 `select ... from public.boards` 로 직접 쓰면 안 됩니다. 정책 안의
+-- 조회에도 boards 의 RLS 가 그대로 걸리는데, boards 는 주인(authenticated)만 읽을 수 있어
+-- 손님(anon)에게는 언제나 0건이 나옵니다. 그러면 공유와 글쓰기를 켜 두어도 손님 업로드가
+-- 전부 거부됩니다. 그래서 RLS 를 우회하는 security definer 함수로 확인합니다.
+create or replace function public.board_accepts_guest_files(board_id text)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from public.boards b
+    where b.id = board_id
+      and b.share_enabled = true
+      and coalesce((b.data ->> 'guestPostEnabled')::boolean, false)
+  );
+$$;
+
+grant execute on function public.board_accepts_guest_files(text) to anon, authenticated;
+
 drop policy if exists "attachments guest insert" on storage.objects;
 drop policy if exists "attachments guest files owner select" on storage.objects;
 drop policy if exists "attachments guest files owner delete" on storage.objects;
@@ -90,12 +113,7 @@ create policy "attachments guest insert" on storage.objects
   with check (
     bucket_id = 'attachments'
     and (storage.foldername(name))[1] = 'guest'
-    and exists (
-      select 1 from public.boards b
-      where b.id = (storage.foldername(name))[2]
-        and b.share_enabled = true
-        and coalesce((b.data ->> 'guestPostEnabled')::boolean, false)
-    )
+    and public.board_accepts_guest_files((storage.foldername(name))[2])
   );
 create policy "attachments guest files owner select" on storage.objects
   for select to authenticated

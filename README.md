@@ -72,7 +72,11 @@ Vercel은 배포마다 `callum-xxxxxxxx-....vercel.app` 같은 **배포 전용 �
 ### 손님이 이미지·PDF를 못 올릴 때
 
 공유 설정에서 글쓰기를 켰는데도 손님의 파일 업로드가 거부된다면, 저장소 정책이 옛 버전입니다.
-`supabase/schema.sql`을 다시 통째로 실행하세요.
+**`supabase/fix-guest-uploads.sql`** 을 SQL Editor에 붙여 넣고 실행하세요. 이 문제만 고치는 짧은
+스크립트라 붙여넣기가 잘릴 걱정이 없습니다. `supabase/schema.sql` 전체를 실행해도 같은 내용이 들어갑니다.
+
+`schema.sql`이 길어 붙여넣기 도중 잘리면 `unterminated dollar-quoted string` 오류가 납니다.
+파일이 잘못된 것이 아니라 편집기에 일부만 들어간 것이니, 짧은 위 파일을 쓰거나 전체를 다시 붙여 넣으세요.
 
 원인은 이렇습니다. 예전 정책은 손님 업로드를 허용할지 판단할 때 정책 안에서 `boards` 테이블을
 직접 조회했습니다. 그런데 정책 안의 조회에도 `boards`의 RLS가 그대로 걸리고, `boards`는
@@ -80,13 +84,16 @@ Vercel은 배포마다 `callum-xxxxxxxx-....vercel.app` 같은 **배포 전용 �
 공유와 글쓰기를 아무리 켜 두어도 업로드가 전부 거부되었습니다. 지금은 RLS를 우회하는
 `board_accepts_guest_files` 함수(security definer)로 확인하므로 정상 동작합니다.
 
-정책이 최신인지 확인하려면 SQL Editor에서 실행해 보세요. `true`가 나오면 정상입니다.
+정책이 최신인지 확인하려면 SQL Editor에서 실행해 보세요. 공유와 글쓰기를 켠 보드는 마지막 열이
+`true`로 나와야 합니다.
 
 ```sql
-select public.board_accepts_guest_files('여기에_보드_ID');
+select id, title, share_enabled, public.board_accepts_guest_files(id)
+from public.boards order by updated_at desc;
 ```
 
-보드 ID는 `select id, title, share_enabled from public.boards;` 로 확인합니다.
+`share_enabled`가 true인데 마지막 열이 false면 그 보드의 글쓰기 허용이 꺼져 있는 것이니,
+앱의 공유 설정에서 켜 주세요.
 
 ## Supabase 준비
 

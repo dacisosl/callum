@@ -110,6 +110,9 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .demo-banner a { display: inline-flex; align-items: center; gap: 4px; color: #0d50d8; font-weight: 750; text-decoration: none; }
 .demo-banner a svg { width: 13px; }
 
+/* 칼럼 밖(편집창·뷰어·끌기 복사본은 body 로 포털됩니다)에서도 색 계산이 깨지지 않도록 기본값을 둡니다. */
+:root { --column-hue: 222; }
+
 .board { height: calc(100vh - 132px); display: flex; align-items: flex-start; gap: 16px; padding: 6px 22px 22px; overflow: auto; overscroll-behavior-x: contain; scrollbar-gutter: stable; }
 .demo-banner + .board, .demo-banner + div .board { height: calc(100vh - 170px); }
 .column { --column-hue: 222; width: 306px; flex: 0 0 306px; max-height: calc(100vh - 176px); display: flex; flex-direction: column; padding: 0; }
@@ -263,6 +266,44 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .add-card-button svg { width: 20px; }
 .add-column-button svg { width: 16px; }
 .column-empty { margin: 14px 6px; color: #6b7883; font-size: 13px; text-align: center; }
+
+/* 질문 섹션. 질문은 칼럼 맨 위에 고정되고, 그 아래 답변 카드가 쌓입니다. 칼럼 높이가 고정이라
+   질문이 길면 카드 볼 자리를 먹으므로 기본은 3줄만 보이고 "더 보기"로 펼칩니다. */
+.column-question { display: grid; gap: 5px; margin: 8px 0 0; padding: 10px 12px 9px; border: 1px solid hsl(var(--column-hue) 45% 78%); border-left: 3px solid hsl(var(--column-hue) 50% 48%); border-radius: 12px; background: hsl(var(--column-hue) 68% 97%); }
+.column-question-label { display: inline-flex; align-items: center; gap: 5px; color: hsl(var(--column-hue) 45% 34%); font-size: 11px; font-weight: 800; letter-spacing: .02em; }
+.column-question-label svg { width: 13px; height: 13px; }
+.column-question p { margin: 0; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; color: #2b3841; font-size: 13.5px; font-weight: 650; line-height: 1.5; white-space: pre-line; overflow-wrap: anywhere; }
+.column-question.is-open p { display: block; max-height: 42vh; overflow-y: auto; }
+.column-question-toggle { justify-self: start; padding: 0; border: 0; background: transparent; color: hsl(var(--column-hue) 48% 38%); font-size: 12px; font-weight: 750; cursor: pointer; }
+.column-question-toggle:hover { text-decoration: underline; }
+.column-question-mark { width: 15px; height: 15px; flex: 0 0 15px; color: rgba(255,255,255,.9); }
+.add-card-button.is-answer { gap: 6px; font-size: 13.5px; font-weight: 750; }
+.add-card-button.is-answer svg { width: 17px; }
+
+/* 질문 설정·편집 창 */
+.question-dialog .question-body { display: grid; gap: 8px; padding: 4px 22px 2px; }
+.question-body label { display: grid; gap: 5px; color: #44525c; font-size: 12px; font-weight: 700; }
+.question-body textarea { min-height: 118px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 11px; background: white; color: #1d2830; font: inherit; font-size: 14px; line-height: 1.55; resize: vertical; }
+.question-count { justify-self: end; color: #8c98a1; font-size: 11px; font-weight: 700; }
+.question-note { margin: 0; padding: 9px 11px; border-radius: 10px; background: #f1f4f7; color: #55636d; font-size: 12px; line-height: 1.5; }
+.question-warning { margin: 0; display: grid; grid-template-columns: 16px minmax(0,1fr); gap: 4px 8px; padding: 10px 12px; border: 1px solid #f0d49b; border-radius: 10px; background: #fdf6e6; color: #7a5a1c; font-size: 12px; line-height: 1.5; }
+.question-warning svg { width: 15px; height: 15px; margin-top: 2px; }
+.question-warning .text-button { grid-column: 2; justify-self: start; color: #8a5a10; font-size: 12px; }
+.question-clear { margin-right: auto; color: #b4453c; }
+
+/* 카드 편집창 맨 위의 질문. 길게 쓰는 동안에도 보이도록 위에 붙여 둡니다. */
+.editor-question { position: sticky; top: 0; z-index: 2; display: grid; gap: 5px; padding: 10px 12px; border: 1px solid #cfd9e2; border-left: 3px solid #5a7fc4; border-radius: 12px; background: #f4f7fb; }
+.editor-question p { margin: 0; max-height: 30vh; overflow-y: auto; color: #24313a; font-size: 14px; font-weight: 650; line-height: 1.55; white-space: pre-line; overflow-wrap: anywhere; }
+.editor-question .section-label { color: #445a83; }
+
+/* 뷰어에서 답변 위에 붙는 질문 */
+.viewer-question { display: grid; gap: 5px; padding: 11px 13px; border: 1px solid #cfd9e2; border-left: 3px solid #5a7fc4; border-radius: 12px; background: #f4f7fb; }
+.viewer-question .section-label { color: #445a83; }
+.viewer-question p { margin: 0; color: #24313a; font-size: 14.5px; font-weight: 650; line-height: 1.6; white-space: pre-line; overflow-wrap: anywhere; }
+
+/* 칼럼 추가 폼의 질문 칸 */
+.new-column-question { display: grid; gap: 4px; margin-top: 8px; color: #56636c; font-size: 11.5px; font-weight: 700; }
+.new-column-question textarea { min-height: 62px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px; background: white; color: #1d2830; font: inherit; font-size: 13px; line-height: 1.5; resize: vertical; }
 .add-column-button { width: 196px; min-height: 48px; display: flex; align-items: center; justify-content: center; gap: 7px; flex: 0 0 196px; border: 1px dashed #aab7c0; border-radius: 14px; background: rgba(255,255,255,.6); color: #4c5962; font-size: 14px; font-weight: 750; }
 .add-column-button:hover { border-color: #84939d; background: white; }
 .new-column-form { width: 260px; flex: 0 0 260px; padding: 11px; border: 1px solid var(--border); border-radius: 14px; background: white; box-shadow: 0 8px 25px rgba(20,30,38,.07); }
@@ -424,6 +465,9 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   .demo-banner + div .board { height: calc(100vh - 166px); }
   .column { max-height: calc(100vh - 157px); }
   .demo-banner + div .column { max-height: calc(100vh - 199px); }
+  .column-question p { -webkit-line-clamp: 2; font-size: 13px; }
+  .column-question.is-open p { max-height: 34vh; }
+  .question-dialog .question-body { padding: 4px 18px 2px; }
   .card-dialog { max-height: 94vh; }
   .viewer-dialog { max-height: 94vh; border-radius: 16px; }
   .viewer-header { padding: 18px 60px 12px 16px; }

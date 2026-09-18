@@ -77,8 +77,19 @@ export interface BoardColumn {
   title: string;
   collapsed: boolean;
   hue?: number;
+  // 질문 섹션이면 여기에 질문이 들어갑니다. 값이 있으면 칼럼 맨 위에 질문이 고정되고,
+  // 그 칼럼에서 만드는 카드는 그 질문에 대한 답이 됩니다. 비어 있으면 보통 칼럼입니다.
+  question?: string;
   cards: BoardCard[];
 }
+
+// 질문 섹션이면 다듬은 질문, 아니면 빈 문자열. 질문 섹션인지 판별할 때도 이 값을 씁니다.
+export function columnQuestion(column?: BoardColumn | null) {
+  return column?.question?.trim() ?? "";
+}
+
+// 질문 한 개의 최대 길이. 칼럼 맨 위에 고정되므로 너무 길면 카드 볼 자리가 없어집니다.
+export const MAX_QUESTION_LENGTH = 500;
 
 export interface CardComment {
   id: string;

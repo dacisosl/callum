@@ -72,8 +72,35 @@ export async function loadSharedBoard(token: string): Promise<BoardData | null> 
   return (data as BoardData | null) ?? null;
 }
 
-export async function saveBoard(board: BoardData, ownerId: string) {
-  const payload: BoardData = { ...board, ownerId, updatedAt: Date.now() };
+// 내 화면에 없는 손님 카드를 서버에서 되살립니다. 주인이 보드를 열어 둔 사이 손님이 올린 카드는
+// 주인 화면에 없기 때문에, 그대로 덮어쓰면 사라집니다. 주인이 방금 지운 카드는 removedCardIds 로
+// 걸러 내어 되살아나지 않게 합니다.
+async function withGuestCards(board: BoardData, removedCardIds?: Set<string>): Promise<BoardData> {
+  try {
+    const { data, error } = await supabase().from("boards").select("data").eq("id", board.id).maybeSingle();
+    const remote = (data?.data ?? null) as BoardData | null;
+    if (error || !remote?.columns) return board;
+    const mine = new Set(board.columns.flatMap((column) => column.cards.map((card) => card.id)));
+    let restored = 0;
+    const columns = board.columns.map((column) => {
+      const remoteColumn = remote.columns.find((item) => item.id === column.id);
+      if (!remoteColumn?.cards?.length) return column;
+      // 손님 카드는 서버 함수가 항상 맨 앞에 붙이므로 순서를 유지한 채 앞으로 되돌립니다.
+      const missing = remoteColumn.cards.filter((card) => card.guestAuthor && !mine.has(card.id) && !removedCardIds?.has(card.id));
+      if (!missing.length) return column;
+      restored += missing.length;
+      return { ...column, cards: [...missing, ...column.cards] };
+    });
+    return restored ? { ...board, columns } : board;
+  } catch {
+    // 못 읽으면 평소대로 저장합니다. 저장 자체를 막지는 않습니다.
+    return board;
+  }
+}
+
+export async function saveBoard(board: BoardData, ownerId: string, removedCardIds?: Set<string>) {
+  const merged = board.shareEnabled && board.guestPostEnabled ? await withGuestCards(board, removedCardIds) : board;
+  const payload: BoardData = { ...merged, ownerId, updatedAt: Date.now() };
   const { error } = await supabase().from("boards").upsert({
     id: payload.id,
     owner_id: ownerId,

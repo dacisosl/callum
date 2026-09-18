@@ -929,6 +929,8 @@ function CommentsPanel({ comments, canDelete, askName, authorName, onAuthorNameC
 export function BoardApp() {
   const [routeReady, setRouteReady] = useState(false);
   const [sharedToken, setSharedToken] = useState<string | null>(null);
+  // 새로고침해도 보던 보드로 돌아오도록 주소의 ?board= 값을 씁니다.
+  const [initialBoardId, setInitialBoardId] = useState<string | null>(null);
   const [user, setUser] = useState<AppUser | null>(null);
   const [authReady, setAuthReady] = useState(!supabaseConfigured);
   const [loading, setLoading] = useState(true);
@@ -944,6 +946,9 @@ export function BoardApp() {
   const [uploading, setUploading] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
+  // 다시 읽기 판단에 쓰는 최신 값들. 통로를 다시 연결하지 않으려고 참조로 들고 있습니다.
+  const liveRef = useRef({ boardId: "", token: null as string | null, busy: false, editing: false, dirty: false, dragging: false, comments: false });
+
   // 이번 화면에서 주인이 지운 카드 ID. 저장할 때 손님 카드를 되살리면서 이 카드들이 다시 살아나지 않게 합니다.
   const removedCardIds = useRef(new Set<string>());
   // 질문 설정·편집 대화상자. 질문은 여러 줄일 수 있어 이름 변경과 달리 별도 창을 씁니다.
@@ -1031,9 +1036,11 @@ export function BoardApp() {
 
   useEffect(() => { boardsRef.current = boards; }, [boards]);
   useEffect(() => {
-    // 주소의 ?share= 값은 브라우저에서만 읽을 수 있어 첫 렌더 뒤 한 번 동기화합니다.
+    // 주소의 ?share= 와 ?board= 값은 브라우저에서만 읽을 수 있어 첫 렌더 뒤 한 번 동기화합니다.
+    const params = new URLSearchParams(window.location.search);
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setSharedToken(new URLSearchParams(window.location.search).get("share"));
+    setSharedToken(params.get("share"));
+    setInitialBoardId(params.get("board"));
     setCommentAuthor(localStorage.getItem(COMMENT_NAME_KEY) ?? "");
     setRouteReady(true);
   }, []);
@@ -1080,7 +1087,9 @@ export function BoardApp() {
         const localBoards = readLocalBoards();
         if (!cancelled) {
           setBoards(localBoards);
-          setActiveBoardId(localBoards[0].id);
+          const wanted = initialBoardId ? localBoards.find((board) => board.id === initialBoardId) : undefined;
+          setActiveBoardId(wanted ? wanted.id : localBoards[0].id);
+          if (wanted) setView("board");
           setLoading(false);
         }
         return;
@@ -1097,7 +1106,10 @@ export function BoardApp() {
           const nextBoards = remoteBoards.length ? remoteBoards : [{ ...cloneStarterBoard(), id: makeId("board") }];
           if (cancelled) return;
           setBoards(nextBoards);
-          setActiveBoardId(nextBoards[0].id);
+          // 주소에 보드가 적혀 있고 그 보드가 아직 있으면 그 보드를 바로 엽니다.
+          const wanted = initialBoardId ? nextBoards.find((board) => board.id === initialBoardId) : undefined;
+          setActiveBoardId(wanted ? wanted.id : nextBoards[0].id);
+          if (wanted) setView("board");
           if (!remoteBoards.length) markDirty(nextBoards[0].id);
         } catch {
           toast.error("서버에서 보드를 불러오지 못했습니다.");
@@ -1110,7 +1122,27 @@ export function BoardApp() {
       if (!cancelled) { setLoading(false); setAuthReady(true); toast.error("앱을 시작하지 못했습니다. Supabase 설정을 확인해 주세요."); }
     });
     return () => { cancelled = true; unsubscribe?.(); };
-  }, [markDirty, routeReady, sharedToken]);
+  }, [initialBoardId, markDirty, routeReady, sharedToken]);
+
+  // 지금 보고 있는 보드를 주소에 남깁니다. 새로고침하면 그 보드가 다시 열리고, 뒤로가기로 홈에 갑니다.
+  useEffect(() => {
+    if (!routeReady || readOnly || loading) return;
+    const search = view === "board" && activeBoardId ? `?board=${encodeURIComponent(activeBoardId)}` : "";
+    const next = `${window.location.pathname}${search}`;
+    if (`${window.location.pathname}${window.location.search}` === next) return;
+    try { window.history.pushState({}, "", next); } catch { /* 주소를 못 바꿔도 화면은 그대로 동작합니다. */ }
+  }, [activeBoardId, loading, readOnly, routeReady, view]);
+
+  useEffect(() => {
+    if (readOnly) return;
+    function syncFromUrl() {
+      const boardId = new URLSearchParams(window.location.search).get("board");
+      if (boardId && boardsRef.current.some((board) => board.id === boardId)) { setActiveBoardId(boardId); setView("board"); }
+      else setView("home");
+    }
+    window.addEventListener("popstate", syncFromUrl);
+    return () => window.removeEventListener("popstate", syncFromUrl);
+  }, [readOnly]);
 
   useEffect(() => {
     if (!dirtyBoardId || readOnly) return;
@@ -1122,6 +1154,8 @@ export function BoardApp() {
           const saved = await (await import("@/lib/supabase-client")).saveBoard(board, user.uid, removedCardIds.current);
           // 저장하면서 내 화면에 없던 손님 카드를 되살렸으면 화면에도 반영합니다.
           if (saved.columns !== board.columns) setBoards((current) => current.map((item) => item.id === saved.id ? saved : item));
+          // 같은 보드를 보고 있는 사람들에게 바뀐 것을 알립니다.
+          boardChannel.current?.notify();
         }
         else localStorage.setItem(LOCAL_KEY, JSON.stringify(boards));
         setSaveStatus("saved");
@@ -1139,6 +1173,68 @@ export function BoardApp() {
     markDirty(boardId);
   }, [markDirty]);
   const updateActiveBoard = useCallback((updater: (board: BoardData) => BoardData) => updateBoard(activeBoardId, updater), [activeBoardId, updateBoard]);
+
+  // 서버의 최신 내용을 다시 읽어 화면에 반영합니다. 내가 쓰는 중이거나 아직 저장되지 않은
+  // 변경이 있으면 건너뜁니다. 그래야 남의 글이 내 작업을 덮어쓰지 않습니다.
+  const refreshBoard = useCallback(async () => {
+    const live = liveRef.current;
+    if (!supabaseConfigured || !live.boardId || live.busy || live.editing || live.dirty || live.dragging) return;
+    live.busy = true;
+    try {
+      const backend = await import("@/lib/supabase-client");
+      const fresh = live.token ? await backend.loadSharedBoard(live.token) : await backend.loadBoardById(live.boardId);
+      if (fresh) setBoards((current) => current.map((board) => board.id === fresh.id ? fresh : board));
+      if (live.comments) {
+        const fetched = live.token ? await backend.loadSharedComments(live.token) : await backend.loadComments(live.boardId);
+        setComments(fetched);
+      }
+    } catch { /* 잠시 뒤 다시 확인합니다. */ }
+    finally { live.busy = false; }
+  }, []);
+
+  // 위 판단에 쓰는 값들을 매 렌더마다 최신으로 맞춰 둡니다.
+  useEffect(() => {
+    liveRef.current.boardId = activeBoard?.id ?? "";
+    liveRef.current.token = sharedToken;
+    liveRef.current.editing = editorOpen;
+    liveRef.current.dirty = Boolean(dirtyBoardId);
+    liveRef.current.dragging = Boolean(dragCardId);
+    liveRef.current.comments = commentsEnabled;
+  });
+
+  const refreshBoardRef = useRef(refreshBoard);
+  useEffect(() => { refreshBoardRef.current = refreshBoard; }, [refreshBoard]);
+
+  // 같은 보드를 보는 사람들이 서로 "바뀌었다"고 알리는 통로. 알림을 받으면 바로 다시 읽습니다.
+  const boardChannel = useRef<{ notify: () => void; close: () => void } | null>(null);
+  useEffect(() => {
+    if (!supabaseConfigured || !routeReady || !activeBoardId) return;
+    let open = true;
+    let handle: { notify: () => void; close: () => void } | null = null;
+    void (async () => {
+      const backend = await import("@/lib/supabase-client");
+      if (!open) return;
+      handle = backend.connectBoardChannel(activeBoardId, () => { void refreshBoardRef.current(); });
+      boardChannel.current = handle;
+      // 보드를 열자마자 한 번 최신 내용을 맞춰 둡니다. 그 사이 올라온 글이 바로 보입니다.
+      void refreshBoardRef.current();
+    })();
+    return () => { open = false; handle?.close(); boardChannel.current = null; };
+  }, [activeBoardId, routeReady]);
+
+  // 알림이 막혀 있는 환경을 위한 보조 수단: 탭으로 돌아왔을 때와 60초마다 한 번씩 확인합니다.
+  useEffect(() => {
+    if (!supabaseConfigured || !routeReady || !activeBoardId) return;
+    function check() { if (document.visibilityState === "visible") void refreshBoardRef.current(); }
+    const timer = window.setInterval(check, 60000);
+    window.addEventListener("focus", check);
+    document.addEventListener("visibilitychange", check);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", check);
+      document.removeEventListener("visibilitychange", check);
+    };
+  }, [activeBoardId, routeReady]);
 
   // 썸네일 없이 올라간 옛 PDF 첨부에 첫 쪽 썸네일을 채워 넣습니다. 보드 주인이 보드를 열었을 때 하나씩 처리하며,
   // 한 번 시도한 첨부는 이 세션에서 다시 시도하지 않습니다.
@@ -1338,6 +1434,7 @@ export function BoardApp() {
       setEditorOpen(false);
       setDraft(null);
       setViewerCardId(null);
+      boardChannel.current?.notify();
       toast.success(editing ? "글을 수정했습니다." : "카드를 올렸습니다.");
     } catch (error) {
       toast.error(error instanceof Error && error.message ? error.message : editing ? "글을 수정하지 못했습니다." : "카드를 올리지 못했습니다.");
@@ -1498,6 +1595,7 @@ export function BoardApp() {
         writeLocalComments([...readLocalComments(), comment]);
       }
       setComments((current) => [...current, saved]);
+      boardChannel.current?.notify();
       if (readOnly) localStorage.setItem(COMMENT_NAME_KEY, commentAuthor.trim().slice(0, 40));
       return true;
     } catch (error) {

@@ -67,6 +67,25 @@ export async function loadOwnedBoards(ownerId: string): Promise<BoardData[]> {
   return (data ?? []).map((row) => ({ ...(row.data as BoardData), ownerId }));
 }
 
+// 보드 하나만 다시 읽습니다. RLS 가 걸려 있어 자기 보드만 읽힙니다.
+export async function loadBoardById(boardId: string): Promise<BoardData | null> {
+  const { data, error } = await supabase().from("boards").select("data").eq("id", boardId).maybeSingle();
+  if (error || !data?.data) return null;
+  return data.data as BoardData;
+}
+
+// 같은 보드를 보고 있는 사람들에게 "내용이 바뀌었다"고 알리는 통로입니다. 표 구독이 아니라
+// 방송이라 Supabase 쪽에 따로 켤 설정도, 실행할 SQL 도 없습니다. 방송이 막혀 있어도
+// 주기적 확인과 화면 복귀 시 확인이 대신 잡아 주므로 기능이 멈추지는 않습니다.
+export function connectBoardChannel(boardId: string, onChange: () => void) {
+  const channel = supabase().channel(`board-${boardId}`, { config: { broadcast: { self: false } } });
+  channel.on("broadcast", { event: "changed" }, () => onChange()).subscribe();
+  return {
+    notify: () => { void channel.send({ type: "broadcast", event: "changed", payload: {} }).catch(() => {}); },
+    close: () => { void supabase().removeChannel(channel); },
+  };
+}
+
 export async function loadSharedBoard(token: string): Promise<BoardData | null> {
   const { data, error } = await supabase().rpc("get_shared_board", { token });
   if (error) throw translate(error);

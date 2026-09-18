@@ -265,11 +265,17 @@ export async function removeComment(commentId: string) {
 }
 
 // 공유 링크로 들어온 사람이 카드를 올립니다. 보드의 글쓰기 허용이 켜져 있을 때만 통과합니다.
+// 데이터베이스에 그 이름·인자의 함수가 아직 없을 때 나는 오류인지. 보드 주인이 최신
+// supabase/schema.sql 을 아직 실행하지 않은 경우입니다.
+function missingFunction(error: { code?: string; message?: string } | null) {
+  return error?.code === "PGRST202" || (error?.message ?? "").includes("Could not find the function");
+}
+
 export async function addSharedCard(
   token: string,
   card: { id: string; columnId: string; title: string; body: string; link?: LinkPreviewData; author: string; attachments: Attachment[]; editKey: string },
 ): Promise<BoardCard> {
-  const { data, error } = await supabase().rpc("add_shared_card", {
+  const base = {
     token,
     card_id: card.id,
     target_column: card.columnId,
@@ -278,10 +284,15 @@ export async function addSharedCard(
     card_link: card.link ?? null,
     author: card.author,
     card_attachments: card.attachments,
-    card_edit_key: card.editKey,
-  });
-  if (error) throw translate(error);
-  return data as BoardCard;
+  };
+  const { data, error } = await supabase().rpc("add_shared_card", { ...base, card_edit_key: card.editKey });
+  if (!error) return data as BoardCard;
+  // 수정 열쇠를 받는 새 함수가 아직 없으면 예전 함수로 그냥 올립니다. 글은 정상적으로 올라가고
+  // 나중에 고치는 것만 안 됩니다. 이 때문에 글쓰기 자체가 막히지는 않게 합니다.
+  if (!missingFunction(error)) throw translate(error);
+  const retry = await supabase().rpc("add_shared_card", base);
+  if (retry.error) throw translate(retry.error);
+  return retry.data as BoardCard;
 }
 
 // 손님이 자기가 올린 글을 고칩니다. 글을 올릴 때 받은 열쇠가 맞아야만 서버가 통과시킵니다.
@@ -298,6 +309,7 @@ export async function updateSharedCard(
     edit_key: card.editKey,
     card_attachments: card.attachments,
   });
+  if (missingFunction(error)) throw new Error("이 보드는 아직 글 수정을 받을 준비가 되지 않았습니다. 보드 주인에게 알려 주세요.");
   if (error) throw translate(error);
   return data as BoardCard;
 }

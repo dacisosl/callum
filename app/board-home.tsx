@@ -81,7 +81,14 @@ function RingMeter({ label, used, limit, icon, note }: { label: string; used: nu
   );
 }
 
-function UsagePanel({ usage, loading, demo, onRefresh }: { usage: UsageSnapshot | null; loading: boolean; demo: boolean; onRefresh: () => void }) {
+function UsagePanel({ usage, loading, demo, onRefresh, onSweep }: { usage: UsageSnapshot | null; loading: boolean; demo: boolean; onRefresh: () => void; onSweep: () => Promise<void> }) {
+  // 어느 카드도 가리키지 않는 첨부 파일을 지웁니다. 되돌릴 수 없어 확인을 한 번 받습니다.
+  const [sweeping, setSweeping] = useState(false);
+  async function sweep() {
+    if (!window.confirm("어느 카드도 쓰지 않는 첨부 파일을 지웁니다. 되돌릴 수 없습니다. 계속할까요?")) return;
+    setSweeping(true);
+    try { await onSweep(); } finally { setSweeping(false); }
+  }
   const projectRef = supabaseConfig.url.match(/https?:\/\/([^.]+)\./)?.[1];
   const dashboard = projectRef ? `https://supabase.com/dashboard/project/${projectRef}` : "https://supabase.com/dashboard";
   const stats = usage ? [
@@ -98,7 +105,10 @@ function UsagePanel({ usage, loading, demo, onRefresh }: { usage: UsageSnapshot 
           <strong>무료 사용량</strong>
           <span>{usage ? `${formatUpdated(usage.measuredAt)} 기준${usage.partial ? " · 일부만 셈" : ""}` : loading ? "세는 중" : "아직 세지 않음"}</span>
         </div>
-        <button type="button" className="usage-refresh" onClick={onRefresh} disabled={loading} aria-label="사용량 새로 고침" title="새로 고침"><RefreshCw aria-hidden="true" className={loading ? "spin" : undefined} /></button>
+        <div className="usage-actions">
+          <button type="button" className="usage-refresh" onClick={() => void sweep()} disabled={sweeping || loading} aria-label="쓰이지 않는 첨부 파일 정리" title="쓰이지 않는 파일 정리"><Trash2 aria-hidden="true" className={sweeping ? "spin" : undefined} /></button>
+          <button type="button" className="usage-refresh" onClick={onRefresh} disabled={loading || sweeping} aria-label="사용량 새로 고침" title="새로 고침"><RefreshCw aria-hidden="true" className={loading ? "spin" : undefined} /></button>
+        </div>
       </header>
       {usage ? (
         <>
@@ -131,13 +141,14 @@ function formatUpdated(value: number) {
   return new Date(value).toLocaleDateString("ko-KR", { year: "numeric", month: "short", day: "numeric" });
 }
 
-export function BoardHome({ boards, demo, showLogout, usage, usageLoading, onRefreshUsage, onOpen, onCreate, onRename, onDelete, onLogout, onToggleShare }: {
+export function BoardHome({ boards, demo, showLogout, usage, usageLoading, onRefreshUsage, onSweep, onOpen, onCreate, onRename, onDelete, onLogout, onToggleShare }: {
   boards: BoardData[];
   demo: boolean;
   showLogout: boolean;
   usage: UsageSnapshot | null;
   usageLoading: boolean;
   onRefreshUsage: () => void;
+  onSweep: () => Promise<void>;
   onOpen: (boardId: string) => void;
   onCreate: () => void;
   onRename: (board: BoardData) => void;
@@ -184,7 +195,7 @@ export function BoardHome({ boards, demo, showLogout, usage, usageLoading, onRef
       {demo && <aside className="demo-banner"><span>로컬 데모 모드 · Supabase 설정을 추가하면 계정과 클라우드 저장이 활성화됩니다.</span><a href="https://supabase.com/dashboard" target="_blank" rel="noreferrer">Supabase 열기 <ExternalLink /></a></aside>}
 
       <section className="home" aria-label="보드 목록">
-        <UsagePanel usage={usage} loading={usageLoading} demo={demo} onRefresh={onRefreshUsage} />
+        <UsagePanel usage={usage} loading={usageLoading} demo={demo} onRefresh={onRefreshUsage} onSweep={onSweep} />
         {sharedBoards.length > 0 && (
           <section className="share-list" aria-label="공유 링크 목록">
             <div className="share-list-head">

@@ -539,7 +539,8 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .usage-title { min-width: 0; display: grid; gap: 1px; }
 .usage-title strong { font-size: 15px; letter-spacing: -.01em; }
 .usage-title span { color: #7a868e; font-size: 12px; }
-.usage-refresh { width: 36px; height: 36px; display: grid; place-items: center; margin-left: auto; border: 1px solid var(--border); border-radius: 10px; background: white; color: #5a6871; cursor: pointer; }
+.usage-actions { display: flex; gap: 6px; margin-left: auto; }
+.usage-refresh { width: 36px; height: 36px; display: grid; place-items: center; border: 1px solid var(--border); border-radius: 10px; background: white; color: #5a6871; cursor: pointer; }
 .usage-refresh:hover { border-color: #aebbc4; background: #f7f9fa; color: #25333c; }
 .usage-refresh:disabled { opacity: .6; cursor: default; }
 .usage-refresh svg { width: 16px; }

@@ -89,6 +89,7 @@ import { BoardHome } from "./board-home";
 import { cloneStarterBoard } from "@/lib/demo-data";
 import { supabaseConfigured } from "@/lib/supabase-config";
 import { publicSiteOrigin, shareLink } from "@/lib/site-url";
+import { AUTO_SWEEP_AGE, MANUAL_SWEEP_AGE } from "@/lib/attachment-sweep";
 import {
   CARD_TONES,
   COLUMN_HUES,
@@ -1246,6 +1247,50 @@ export function BoardApp() {
     };
   }, [activeBoardId, routeReady]);
 
+  // 어느 카드도 가리키지 않는 첨부 파일을 치웁니다. 보드마다 이 화면에서 한 번만 돌고,
+  // 편집 중인 파일을 지우지 않도록 올라간 지 하루가 지난 것만 대상으로 삼습니다.
+  const sweptBoards = useRef(new Set<string>());
+  useEffect(() => {
+    if (!supabaseConfigured || !user || readOnly || !activeBoard || loading) return;
+    const boardId = activeBoard.id;
+    if (sweptBoards.current.has(boardId)) return;
+    sweptBoards.current.add(boardId);
+    const ownerId = user.uid;
+    const timer = window.setTimeout(() => void (async () => {
+      try {
+        const backend = await import("@/lib/supabase-client");
+        // 판단 기준은 반드시 서버에서 막 읽어 온 보드여야 합니다. 화면의 보드는 손님이 방금 올린 글을 모를 수 있습니다.
+        const fresh = await backend.loadBoardById(boardId);
+        if (!fresh) return;
+        const { removed, bytes } = await backend.sweepOrphanAttachments(ownerId, fresh, AUTO_SWEEP_AGE);
+        if (!removed) return;
+        toast.message(`쓰이지 않는 파일 ${removed}개(${formatBytes(bytes)})를 정리했습니다.`);
+        void refreshUsage();
+      } catch { /* 다음에 열 때 다시 시도합니다. */ }
+    })(), 4000);
+    return () => window.clearTimeout(timer);
+  }, [activeBoard, loading, readOnly, refreshUsage, user]);
+
+  // 홈 화면의 "지금 정리" 버튼. 사람이 직접 누르는 것이라 기준을 10분으로 짧게 잡습니다.
+  const sweepAllBoards = useCallback(async () => {
+    if (!supabaseConfigured || !user) { toast.message("로컬 데모 모드에서는 정리할 저장소가 없습니다."); return; }
+    const backend = await import("@/lib/supabase-client");
+    let removed = 0;
+    let bytes = 0;
+    for (const board of boardsRef.current) {
+      try {
+        const fresh = await backend.loadBoardById(board.id);
+        if (!fresh) continue;
+        const result = await backend.sweepOrphanAttachments(user.uid, fresh, MANUAL_SWEEP_AGE);
+        removed += result.removed;
+        bytes += result.bytes;
+        sweptBoards.current.add(board.id);
+      } catch { /* 이 보드는 건너뜁니다. */ }
+    }
+    toast.success(removed ? `쓰이지 않는 파일 ${removed}개(${formatBytes(bytes)})를 정리했습니다.` : "정리할 파일이 없습니다.");
+    await refreshUsage();
+  }, [refreshUsage, user]);
+
   // 썸네일 없이 올라간 옛 PDF 첨부에 첫 쪽 썸네일을 채워 넣습니다. 보드 주인이 보드를 열었을 때 하나씩 처리하며,
   // 한 번 시도한 첨부는 이 세션에서 다시 시도하지 않습니다.
   const thumbnailBackfill = useRef(new Set<string>());
@@ -1782,6 +1827,7 @@ export function BoardApp() {
           usage={usage}
           usageLoading={usageLoading}
           onRefreshUsage={() => void refreshUsage()}
+          onSweep={sweepAllBoards}
           onToggleShare={(board, enabled) => {
             updateBoard(board.id, (item) => ({ ...item, shareEnabled: enabled, shareToken: enabled ? item.shareToken || makeShareToken() : item.shareToken }));
             toast.success(enabled ? `${board.title} 공유 링크를 만들었습니다.` : `${board.title} 공유를 중지했습니다.`);

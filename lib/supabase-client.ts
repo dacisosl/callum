@@ -2,6 +2,7 @@
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { Attachment, BoardCard, BoardData, CardComment, LinkPreviewData, UsageSnapshot } from "./board-types";
+import { chunk, orphanFiles, referencedPaths, type StoredFile } from "./attachment-sweep";
 import { supabaseConfig, supabaseConfigured } from "./supabase-config";
 
 export type AppUser = { uid: string; email: string | null };
@@ -342,7 +343,7 @@ export async function deleteSharedCard(token: string, cardId: string, editKey: s
 
 // ---- 사용량 ----
 
-type StorageEntry = { name: string; id: string | null; metadata?: { size?: number } | null };
+type StorageEntry = { name: string; id: string | null; created_at?: string | null; metadata?: { size?: number } | null };
 
 // 한 폴더의 파일 크기를 더합니다. 하위 폴더는 재귀로 들어갑니다. 1000개가 넘으면 partial 로 표시합니다.
 async function sumFolder(prefix: string, depth: number): Promise<{ bytes: number; files: number; partial: boolean }> {
@@ -362,6 +363,38 @@ async function sumFolder(prefix: string, depth: number): Promise<{ bytes: number
     }
   }
   return { bytes, files, partial };
+}
+
+// 한 폴더의 파일을 경로·크기·업로드 시각으로 모읍니다. sumFolder 와 같은 순회 규칙을 씁니다.
+async function listFiles(prefix: string, depth: number): Promise<StoredFile[]> {
+  if (depth > 3) return [];
+  const { data, error } = await supabase().storage.from(BUCKET).list(prefix, { limit: 1000 });
+  if (error || !data) return [];
+  const files: StoredFile[] = [];
+  for (const entry of data as StorageEntry[]) {
+    if (entry.id === null) files.push(...await listFiles(`${prefix}/${entry.name}`, depth + 1));
+    else files.push({ path: `${prefix}/${entry.name}`, size: Number(entry.metadata?.size ?? 0), createdAt: entry.created_at ?? undefined });
+  }
+  return files;
+}
+
+// 이 보드의 어느 카드도 가리키지 않는 첨부 파일을 지웁니다. 판단 기준이 되는 board 는 반드시
+// 서버에서 막 읽어 온 것이어야 합니다. 화면에 있는 보드는 손님이 방금 올린 글을 모를 수 있습니다.
+export async function sweepOrphanAttachments(ownerId: string, board: BoardData, minAgeMs: number): Promise<{ removed: number; bytes: number }> {
+  const referenced = referencedPaths(board);
+  const files = [...await listFiles(`${ownerId}/${board.id}`, 1), ...await listFiles(`guest/${board.id}`, 1)];
+  const targets = orphanFiles(files, referenced, minAgeMs, Date.now());
+  if (!targets.length) return { removed: 0, bytes: 0 };
+  let removed = 0;
+  let bytes = 0;
+  for (const group of chunk(targets, 100)) {
+    const { error } = await supabase().storage.from(BUCKET).remove(group.map((file) => file.path));
+    // 일부가 실패해도 지운 만큼만 알리고 넘어갑니다. 다음에 열 때 다시 시도합니다.
+    if (error) continue;
+    removed += group.length;
+    bytes += group.reduce((sum, file) => sum + file.size, 0);
+  }
+  return { removed, bytes };
 }
 
 // 내 파일({내 ID}/...)과 내 보드에 손님이 올린 파일(guest/{보드ID}/...)을 모두 셉니다.

@@ -364,6 +364,10 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .viewer-title { margin: 0; font-size: 22px; line-height: 1.3; letter-spacing: -.02em; word-break: keep-all; overflow-wrap: anywhere; }
 .viewer-edit { position: absolute; top: 18px; right: 56px; min-height: 36px; padding: 0 12px; font-size: 13px; }
 .viewer-edit svg { width: 15px; }
+.viewer-own-actions { display: inline-flex; align-items: center; gap: 4px; padding: 0; }
+.viewer-own-actions .secondary-button { min-height: 36px; padding: 0 12px; font-size: 13px; }
+.viewer-own-delete { min-height: 36px; padding: 0 9px; color: #b4453c; font-size: 13px; }
+.viewer-own-delete:hover { background: #fdeceb; border-radius: 9px; }
 .viewer-body { display: grid; gap: 18px; padding: 4px 26px 26px; overflow-y: auto; }
 .viewer-text { margin: 0; color: #2b3841; font-size: 15px; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
 .viewer-video { position: relative; aspect-ratio: 16 / 9; overflow: hidden; border-radius: 14px; background: #0f151a; box-shadow: 0 10px 28px rgba(20,30,38,.18); }
@@ -475,6 +479,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   .viewer-header { padding: 18px 60px 12px 16px; }
   .viewer-title { font-size: 19px; }
   .viewer-edit { position: static; justify-self: start; margin-top: 4px; }
+  .viewer-own-actions { flex-wrap: wrap; }
   .viewer-body { padding: 2px 16px 18px; gap: 14px; }
   .viewer-pdf iframe { height: 60vh; }
   .lightbox-dialog { padding: 8px; }

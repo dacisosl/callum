@@ -1,9 +1,9 @@
--- 공유받은 사람의 카드 작성·수정 부분만 담은 스크립트입니다.
+-- 공유받은 사람의 카드 작성·수정·삭제 부분만 담은 스크립트입니다.
 -- Supabase 대시보드 > SQL Editor 에 통째로 붙여 넣고 Run 하세요. 여러 번 실행해도 안전합니다.
--- schema.sql 전체를 실행해도 같은 내용이 들어갑니다. 긴 파일이 붙여넣기 중 잘릴 때 이 파일을 쓰세요.
+-- schema.sql 전체를 실행해도 같은 내용이 들어갑니다.
 --
--- 이 파일을 실행하면 손님이 자기가 올린 글을 나중에 고칠 수 있게 됩니다.
--- 실행하지 않아도 글 올리기와 파일 첨부는 예전처럼 동작합니다(수정만 안 됩니다).
+-- 이 파일을 실행하면 손님이 자기가 올린 글을 나중에 고치거나 지울 수 있게 됩니다.
+-- 실행하지 않아도 글 올리기와 파일 첨부는 예전처럼 동작합니다.
 
 -- 6. 공유받은 사람의 카드 작성·수정: 보드의 data->>'guestPostEnabled' 가 true 일 때만 동작합니다.
 --    주인의 보드 데이터(jsonb) 안에 카드를 직접 덧붙이므로 주인이 보는 화면과 같은 카드가 됩니다.
@@ -279,9 +279,84 @@ $$;
 
 grant execute on function public.update_shared_card(text, text, text, text, jsonb, text, jsonb) to anon, authenticated;
 
--- 확인용. 아래 세 함수가 모두 보이면 정상입니다.
+-- 손님이 자기가 올린 글을 지웁니다. 수정과 같은 열쇠 검사를 거치므로 남의 글은 못 지웁니다.
+-- 첨부 파일 자체는 저장소에 남습니다(손님에게는 저장소 삭제 권한이 없습니다). 보드를 지우면 함께 정리됩니다.
+create or replace function public.delete_shared_card(
+  token text,
+  card_id text,
+  edit_key text
+)
+returns boolean
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  target jsonb;
+  board_id text;
+  board_data jsonb;
+  existing jsonb;
+  now_ms bigint := (extract(epoch from now()) * 1000)::bigint;
+begin
+  target := (
+    select to_jsonb(b)
+    from public.boards b
+    where b.share_enabled = true
+      and token <> ''
+      and b.share_token = token
+      and coalesce((b.data ->> 'guestPostEnabled')::boolean, false)
+    limit 1
+  );
+  if target is null then
+    raise exception '이 보드의 글은 지울 수 없습니다.';
+  end if;
+  board_id := target ->> 'id';
+  board_data := target -> 'data';
+
+  existing := (
+    select card
+    from jsonb_array_elements(coalesce(board_data -> 'columns', '[]'::jsonb)) col,
+         jsonb_array_elements(coalesce(col -> 'cards', '[]'::jsonb)) card
+    where card ->> 'id' = card_id
+    limit 1
+  );
+  if existing is null then
+    raise exception '글을 찾을 수 없습니다.';
+  end if;
+
+  if coalesce(existing ->> 'editKeyHash', '') = ''
+     or existing ->> 'editKeyHash' is distinct from public.guest_edit_hash(edit_key) then
+    raise exception '이 글을 지울 권한이 없습니다. 글을 올린 브라우저에서만 지울 수 있습니다.';
+  end if;
+
+  update public.boards b
+  set data = jsonb_set(
+        b.data,
+        '{columns}',
+        (
+          select coalesce(jsonb_agg(
+            jsonb_set(col, '{cards}', (
+              select coalesce(jsonb_agg(c order by card_order), '[]'::jsonb)
+              from jsonb_array_elements(coalesce(col -> 'cards', '[]'::jsonb)) with ordinality as k(c, card_order)
+              where c ->> 'id' <> card_id
+            ))
+            order by ordinality
+          ), '[]'::jsonb)
+          from jsonb_array_elements(coalesce(b.data -> 'columns', '[]'::jsonb)) with ordinality as t(col, ordinality)
+        )
+      ) || jsonb_build_object('updatedAt', now_ms),
+      updated_at = now_ms
+  where b.id = board_id;
+
+  return true;
+end;
+$$;
+
+grant execute on function public.delete_shared_card(text, text, text) to anon, authenticated;
+
+-- 확인용. 아래 네 함수가 모두 보이면 정상입니다.
 select p.proname as 함수, pg_get_function_identity_arguments(p.oid) as 인자
 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
 where n.nspname = 'public'
-  and p.proname in ('add_shared_card', 'update_shared_card', 'guest_edit_hash')
+  and p.proname in ('add_shared_card', 'update_shared_card', 'delete_shared_card', 'guest_edit_hash')
 order by 1;

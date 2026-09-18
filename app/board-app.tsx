@@ -140,7 +140,9 @@ const MAX_DEMO_FILE = 2 * 1024 * 1024;
 type DeleteTarget =
   | { kind: "board"; id: string; title: string }
   | { kind: "column"; id: string; title: string }
-  | { kind: "card"; id: string; columnId: string; title: string };
+  | { kind: "card"; id: string; columnId: string; title: string }
+  // 손님이 자기가 올린 글을 지울 때. 서버가 열쇠를 확인하므로 남의 글은 지워지지 않습니다.
+  | { kind: "guestCard"; id: string; columnId: string; title: string };
 
 type ModelContextLike = {
   registerTool: (
@@ -345,6 +347,14 @@ function findCard(board: BoardData, id: string) {
     if (index >= 0) return { column, columnIndex: board.columns.indexOf(column), index };
   }
   return null;
+}
+
+// 보드 목록에서 카드 하나를 뺍니다.
+function removeCardFrom(boards: BoardData[], boardId: string, cardId: string): BoardData[] {
+  return boards.map((board) => board.id !== boardId ? board : {
+    ...board,
+    columns: board.columns.map((column) => ({ ...column, cards: column.cards.filter((card) => card.id !== cardId) })),
+  });
 }
 
 // 손님이 올리거나 고친 카드를 보드 목록에 반영합니다. 새 글은 칼럼 맨 앞에, 수정은 제자리에 둡니다.
@@ -1673,6 +1683,23 @@ export function BoardApp() {
 
   async function confirmDelete() {
     if (!deleteTarget || !activeBoard) return;
+    if (deleteTarget.kind === "guestCard") {
+      const editKey = cardEditKey(deleteTarget.id);
+      if (!editKey) { toast.error("이 글을 지울 권한이 없습니다. 글을 올린 브라우저에서만 지울 수 있습니다."); setDeleteTarget(null); return; }
+      try {
+        if (supabaseConfigured && sharedToken) await (await import("@/lib/supabase-client")).deleteSharedCard(sharedToken, deleteTarget.id, editKey);
+        else localStorage.setItem(LOCAL_KEY, JSON.stringify(removeCardFrom(readLocalBoards(), activeBoard.id, deleteTarget.id)));
+        setBoards((current) => removeCardFrom(current, activeBoard.id, deleteTarget.id));
+        setViewerCardId(null);
+        setDeleteTarget(null);
+        boardChannel.current?.notify();
+        toast.success("글을 지웠습니다.");
+      } catch (error) {
+        toast.error(error instanceof Error && error.message ? error.message : "글을 지우지 못했습니다.");
+        setDeleteTarget(null);
+      }
+      return;
+    }
     const previous = structuredClone(activeBoard);
     if (deleteTarget.kind === "board") {
       const target = boards.find((board) => board.id === deleteTarget.id);
@@ -1861,7 +1888,10 @@ export function BoardApp() {
               <DialogTitle className="viewer-title">{viewerCard.title}</DialogTitle>
               <DialogDescription className="sr-only">카드 내용을 크게 봅니다.</DialogDescription>
               {!readOnly && <button className="secondary-button viewer-edit" onClick={() => openCard(viewerTarget.column.id, viewerCard)}><Pencil aria-hidden="true" />편집</button>}
-              {readOnly && canEditGuestCard(viewerCard) && <button className="secondary-button viewer-edit" onClick={() => openCard(viewerTarget.column.id, viewerCard)}><Pencil aria-hidden="true" />내 글 수정</button>}
+              {readOnly && canEditGuestCard(viewerCard) && <span className="viewer-edit viewer-own-actions">
+                <button className="secondary-button" onClick={() => openCard(viewerTarget.column.id, viewerCard)}><Pencil aria-hidden="true" />내 글 수정</button>
+                <button className="text-button viewer-own-delete" onClick={() => setDeleteTarget({ kind: "guestCard", id: viewerCard.id, columnId: viewerTarget.column.id, title: viewerCard.title })}><Trash2 aria-hidden="true" />삭제</button>
+              </span>}
             </DialogHeader>
             <div className="viewer-body">
               {viewerQuestion && <section className="viewer-question"><span className="section-label"><MessageCircleQuestion aria-hidden="true" />{viewerTarget.column.title} 칼럼의 질문</span><p>{viewerQuestion}</p></section>}
@@ -1924,7 +1954,7 @@ export function BoardApp() {
       </Dialog>
 
       <AlertDialog open={Boolean(deleteTarget)} onOpenChange={(open) => !open && setDeleteTarget(null)}>
-        <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>{deleteTarget?.title}을(를) 삭제할까요?</AlertDialogTitle><AlertDialogDescription>{deleteTarget?.kind === "column" ? "칼럼 안의 카드도 함께 삭제됩니다." : "삭제 직후에는 실행 취소할 수 있습니다."}</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>취소</AlertDialogCancel><AlertDialogAction variant="destructive" onClick={() => void confirmDelete()}>삭제</AlertDialogAction></AlertDialogFooter></AlertDialogContent>
+        <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>{deleteTarget?.kind === "guestCard" ? "내가 올린 글을 삭제할까요?" : `${deleteTarget?.title}을(를) 삭제할까요?`}</AlertDialogTitle><AlertDialogDescription>{deleteTarget?.kind === "column" ? "칼럼 안의 카드도 함께 삭제됩니다." : deleteTarget?.kind === "guestCard" ? "지우면 되돌릴 수 없습니다. 첨부한 파일도 카드와 함께 화면에서 사라집니다." : "삭제 직후에는 실행 취소할 수 있습니다."}</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>취소</AlertDialogCancel><AlertDialogAction variant="destructive" onClick={() => void confirmDelete()}>삭제</AlertDialogAction></AlertDialogFooter></AlertDialogContent>
       </AlertDialog>
 
       <Toaster position="bottom-center" />

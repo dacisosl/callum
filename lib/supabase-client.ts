@@ -333,6 +333,13 @@ export async function updateSharedCard(
   return data as BoardCard;
 }
 
+// 손님이 자기가 올린 글을 지웁니다. 수정과 같은 열쇠 검사를 거칩니다.
+export async function deleteSharedCard(token: string, cardId: string, editKey: string) {
+  const { error } = await supabase().rpc("delete_shared_card", { token, card_id: cardId, edit_key: editKey });
+  if (missingFunction(error)) throw new Error("이 보드는 아직 글 삭제를 받을 준비가 되지 않았습니다. 보드 주인에게 알려 주세요.");
+  if (error) throw translate(error);
+}
+
 // ---- 사용량 ----
 
 type StorageEntry = { name: string; id: string | null; metadata?: { size?: number } | null };

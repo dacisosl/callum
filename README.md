@@ -105,13 +105,31 @@ Vercel은 배포마다 `callum-xxxxxxxx-....vercel.app` 같은 **배포 전용 �
 세 함수 모두 보드를 찾는 조건에 `token <> ''` 가 있어 아무것도 쓰기 전에 예외로 빠지므로 어떤 보드도
 건드리지 않습니다. 판정 규칙은 `lib/rpc-errors.ts` 에 순수 함수로 두어 따로 시험합니다.
 
-실행할 파일은 상황에 따라 다릅니다.
+경고가 뜨면 그 자리의 **SQL 복사** 버튼을 누르세요. 빠진 것에 꼭 맞는 SQL이 클립보드에 들어갑니다.
+저장소에서 파일을 찾을 필요가 없고, 일부만 선택돼 잘릴 일도 없습니다.
+
+붙여 넣을 때는 **Supabase SQL Editor 를 먼저 비우세요.** 기존 내용 밑에 덧붙이면 예전 스크립트까지
+다시 길게 실행되어, 지금까지 겪은 잘림 문제가 되풀이됩니다. `Ctrl+A` 로 지우거나 새 쿼리 탭을 여세요.
+
+파일로 직접 실행하고 싶다면 상황에 맞는 것을 고르세요.
 
 | 증상 | 실행할 파일 |
 |---|---|
-| 삭제만 안 됨 | `supabase/guest-card-delete.sql` (99줄) |
-| 수정과 삭제가 안 됨 | `supabase/guest-cards.sql` |
+| 삭제만 안 됨 | `supabase/guest-card-delete.sql` |
+| 손님이 파일을 못 올림 | `supabase/fix-guest-uploads.sql` |
+| 수정·삭제가 안 됨 | `supabase/guest-cards.sql` |
 | 처음부터 설치하거나 전부 맞추고 싶을 때 | `supabase/schema.sql` |
+
+### SQL 파일은 생성물입니다
+
+`supabase/schema.sql` 이 **유일한 원본**입니다. 나머지 짧은 파일들과 앱이 복사해 주는 문자열은
+`scripts/build-sql.mjs` 가 거기서 떼어 만듭니다. 손으로 떼어 두면 `schema.sql` 이 바뀔 때 조용히
+어긋나기 때문입니다.
+
+- 고칠 내용은 `supabase/schema.sql` 에 반영하고 `npm run sql` 을 돌립니다
+- `npm run build` 앞에서도 자동으로 돌아, 배포에 낡은 내용이 실릴 수 없습니다
+- `supabase/fix-guest-uploads.sql`, `supabase/guest-cards.sql`, `supabase/guest-card-delete.sql`,
+  `lib/generated-sql.ts` 는 모두 생성물이니 직접 고치지 마세요
 
 ### 손님이 이미지·PDF를 못 올릴 때
 

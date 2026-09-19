@@ -3,7 +3,7 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { Attachment, BoardCard, BoardData, CardComment, LinkPreviewData, UsageSnapshot } from "./board-types";
 import { chunk, orphanFiles, referencedPaths, type StoredFile } from "./attachment-sweep";
-import { isMissingFunction } from "./rpc-errors";
+import { isMissingFunction, type GuestFunctions } from "./rpc-errors";
 import { supabaseConfig, supabaseConfigured } from "./supabase-config";
 
 export type AppUser = { uid: string; email: string | null };
@@ -291,19 +291,21 @@ const missingFunction = isMissingFunction;
 // 손님 기능에 필요한 데이터베이스 함수가 있는지 확인합니다. 빈 토큰으로 한 번씩 불러 보고
 // "함수 없음" 오류인지만 봅니다. 세 함수 모두 보드를 찾는 조건에 token <> '' 가 있어
 // 아무것도 쓰기 전에 예외로 빠지므로, 어떤 보드도 건드리지 않습니다.
-export async function checkGuestFunctions(): Promise<{ post: boolean; edit: boolean; remove: boolean }> {
+export async function checkGuestFunctions(): Promise<GuestFunctions> {
   async function exists(name: string, args: Record<string, unknown>) {
     const { error } = await supabase().rpc(name, args);
     return !isMissingFunction(error);
   }
-  const [post, edit, remove] = await Promise.all([
+  const [post, edit, remove, upload] = await Promise.all([
     // 수정 열쇠를 받는 새 형태로 확인합니다. 옛 형태만 있으면 새 글에 열쇠가 저장되지 않아
     // 수정도 삭제도 성립하지 않습니다.
     exists("add_shared_card", { token: "", card_id: "", target_column: "", card_title: "", card_body: "", card_link: null, author: "", card_attachments: [], card_edit_key: "" }),
     exists("update_shared_card", { token: "", card_id: "", card_title: "", card_body: "", card_link: null, edit_key: "", card_attachments: [] }),
     exists("delete_shared_card", { token: "", card_id: "", edit_key: "" }),
+    // 이 함수가 없으면 손님 업로드 정책도 옛 버전입니다. 둘이 같은 스크립트로 함께 들어갑니다.
+    exists("board_accepts_guest_files", { board_id: "" }),
   ]);
-  return { post, edit, remove };
+  return { post, edit, remove, upload };
 }
 
 export async function addSharedCard(

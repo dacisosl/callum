@@ -962,6 +962,9 @@ export function BoardApp() {
 
   // 이번 화면에서 주인이 지운 카드 ID. 저장할 때 손님 카드를 되살리면서 이 카드들이 다시 살아나지 않게 합니다.
   const removedCardIds = useRef(new Set<string>());
+  // 손님 기능에 필요한 데이터베이스 함수가 갖춰졌는지. 공유 설정 창을 열 때 한 번만 확인합니다.
+  const [guestFunctions, setGuestFunctions] = useState<{ post: boolean; edit: boolean; remove: boolean } | null>(null);
+
   // 질문 설정·편집 대화상자. 질문은 여러 줄일 수 있어 이름 변경과 달리 별도 창을 씁니다.
   const [questionTarget, setQuestionTarget] = useState<{ columnId: string; columnTitle: string; text: string; answers: number } | null>(null);
   const [addingColumn, setAddingColumn] = useState(false);
@@ -1134,6 +1137,20 @@ export function BoardApp() {
     });
     return () => { cancelled = true; unsubscribe?.(); };
   }, [initialBoardId, markDirty, routeReady, sharedToken]);
+
+  // 공유 설정 창을 처음 열 때 데이터베이스 준비 상태를 확인합니다. 실패하면 아무것도 보여 주지
+  // 않습니다. 틀린 경고는 맞는 정보보다 나쁩니다.
+  useEffect(() => {
+    if (!shareOpen || readOnly || !supabaseConfigured || guestFunctions) return;
+    let live = true;
+    void (async () => {
+      try {
+        const found = await (await import("@/lib/supabase-client")).checkGuestFunctions();
+        if (live) setGuestFunctions(found);
+      } catch { /* 확인에 실패하면 표시하지 않습니다. */ }
+    })();
+    return () => { live = false; };
+  }, [guestFunctions, readOnly, shareOpen]);
 
   // 지금 보고 있는 보드를 주소에 남깁니다. 새로고침하면 그 보드가 다시 열리고, 뒤로가기로 홈에 갑니다.
   useEffect(() => {
@@ -1769,6 +1786,11 @@ export function BoardApp() {
     setDeleteTarget(null);
   }
 
+  // 데이터베이스에 아직 없는 손님 기능. 주인에게만 보여 줍니다.
+  const missingGuestFeatures = guestFunctions
+    ? [!guestFunctions.post && "글쓰기", !guestFunctions.edit && "글 수정", !guestFunctions.remove && "글 삭제"].filter((item): item is string => Boolean(item))
+    : [];
+
   // 공유 링크는 현재 열려 있는 주소가 아니라 항상 고정 도메인으로 만듭니다.
   const shareUrl = activeBoard?.shareToken ? shareLink(publicSiteOrigin(), activeBoard.shareToken) : "";
   function setSharing(enabled: boolean) {
@@ -1996,7 +2018,9 @@ export function BoardApp() {
       </Dialog>
 
       <Dialog open={shareOpen} onOpenChange={setShareOpen}>
-        <DialogContent className="share-dialog"><DialogHeader><DialogTitle>보드 공유</DialogTitle><DialogDescription>링크를 가진 사람은 이 보드를 읽을 수 있습니다.</DialogDescription></DialogHeader><div className="share-switch-row"><div><strong>읽기 전용 링크</strong><span>{activeBoard.shareEnabled ? "공유 중" : "비공개"}</span></div><Switch checked={activeBoard.shareEnabled} onCheckedChange={setSharing} aria-label="읽기 전용 공유" /></div><div className="share-switch-row"><div><strong>공유받은 사람의 글쓰기</strong><span>{activeBoard.guestPostEnabled ? "링크를 가진 사람도 카드를 올릴 수 있습니다" : "꺼짐 · 읽기만 할 수 있습니다"}</span></div><Switch checked={Boolean(activeBoard.guestPostEnabled)} onCheckedChange={(enabled) => { updateActiveBoard((board) => ({ ...board, guestPostEnabled: enabled })); toast.success(enabled ? "공유받은 사람도 카드를 올릴 수 있습니다." : "공유받은 사람의 글쓰기를 껐습니다."); }} aria-label="공유받은 사람의 글쓰기 허용" /></div><div className="share-switch-row"><div><strong>댓글</strong><span>{commentsEnabled ? "카드마다 댓글을 남길 수 있습니다" : "꺼짐 · 카드 뷰어에 댓글란이 보이지 않습니다"}</span></div><Switch checked={commentsEnabled} onCheckedChange={setCommentsEnabled} aria-label="댓글 허용" /></div>{activeBoard.shareEnabled && <><div className="share-url"><input readOnly value={shareUrl} /><button onClick={() => { void navigator.clipboard.writeText(shareUrl); toast.success("공유 링크를 복사했습니다."); }}><Copy />복사</button></div><button className="text-button" onClick={regenerateShareLink}><RotateCcw />기존 링크를 끊고 새 링크 만들기</button>{!supabaseConfigured && <p className="share-warning">로컬 데모 링크는 이 브라우저에서만 확인할 수 있습니다.</p>}</>}</DialogContent>
+        <DialogContent className="share-dialog"><DialogHeader><DialogTitle>보드 공유</DialogTitle><DialogDescription>링크를 가진 사람은 이 보드를 읽을 수 있습니다.</DialogDescription></DialogHeader><div className="share-switch-row"><div><strong>읽기 전용 링크</strong><span>{activeBoard.shareEnabled ? "공유 중" : "비공개"}</span></div><Switch checked={activeBoard.shareEnabled} onCheckedChange={setSharing} aria-label="읽기 전용 공유" /></div><div className="share-switch-row"><div><strong>공유받은 사람의 글쓰기</strong><span>{activeBoard.guestPostEnabled ? "링크를 가진 사람도 카드를 올릴 수 있습니다" : "꺼짐 · 읽기만 할 수 있습니다"}</span></div><Switch checked={Boolean(activeBoard.guestPostEnabled)} onCheckedChange={(enabled) => { updateActiveBoard((board) => ({ ...board, guestPostEnabled: enabled })); toast.success(enabled ? "공유받은 사람도 카드를 올릴 수 있습니다." : "공유받은 사람의 글쓰기를 껐습니다."); }} aria-label="공유받은 사람의 글쓰기 허용" /></div>{guestFunctions && (missingGuestFeatures.length
+          ? <p className="share-warning">데이터베이스에 아직 없는 기능: {missingGuestFeatures.join(", ")}. Supabase SQL Editor 에서 <code>supabase/{missingGuestFeatures.length === 1 && missingGuestFeatures[0] === "글 삭제" ? "guest-card-delete" : "guest-cards"}.sql</code> 을 실행해 주세요.</p>
+          : <p className="share-ready">손님의 글쓰기·수정·삭제가 모두 준비되었습니다.</p>)}<div className="share-switch-row"><div><strong>댓글</strong><span>{commentsEnabled ? "카드마다 댓글을 남길 수 있습니다" : "꺼짐 · 카드 뷰어에 댓글란이 보이지 않습니다"}</span></div><Switch checked={commentsEnabled} onCheckedChange={setCommentsEnabled} aria-label="댓글 허용" /></div>{activeBoard.shareEnabled && <><div className="share-url"><input readOnly value={shareUrl} /><button onClick={() => { void navigator.clipboard.writeText(shareUrl); toast.success("공유 링크를 복사했습니다."); }}><Copy />복사</button></div><button className="text-button" onClick={regenerateShareLink}><RotateCcw />기존 링크를 끊고 새 링크 만들기</button>{!supabaseConfigured && <p className="share-warning">로컬 데모 링크는 이 브라우저에서만 확인할 수 있습니다.</p>}</>}</DialogContent>
       </Dialog>
 
       <AlertDialog open={Boolean(deleteTarget)} onOpenChange={(open) => !open && setDeleteTarget(null)}>

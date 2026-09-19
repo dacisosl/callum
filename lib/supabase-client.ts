@@ -3,6 +3,7 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { Attachment, BoardCard, BoardData, CardComment, LinkPreviewData, UsageSnapshot } from "./board-types";
 import { chunk, orphanFiles, referencedPaths, type StoredFile } from "./attachment-sweep";
+import { isMissingFunction } from "./rpc-errors";
 import { supabaseConfig, supabaseConfigured } from "./supabase-config";
 
 export type AppUser = { uid: string; email: string | null };
@@ -285,10 +286,24 @@ export async function removeComment(commentId: string) {
 }
 
 // 공유 링크로 들어온 사람이 카드를 올립니다. 보드의 글쓰기 허용이 켜져 있을 때만 통과합니다.
-// 데이터베이스에 그 이름·인자의 함수가 아직 없을 때 나는 오류인지. 보드 주인이 최신
-// supabase/schema.sql 을 아직 실행하지 않은 경우입니다.
-function missingFunction(error: { code?: string; message?: string } | null) {
-  return error?.code === "PGRST202" || (error?.message ?? "").includes("Could not find the function");
+const missingFunction = isMissingFunction;
+
+// 손님 기능에 필요한 데이터베이스 함수가 있는지 확인합니다. 빈 토큰으로 한 번씩 불러 보고
+// "함수 없음" 오류인지만 봅니다. 세 함수 모두 보드를 찾는 조건에 token <> '' 가 있어
+// 아무것도 쓰기 전에 예외로 빠지므로, 어떤 보드도 건드리지 않습니다.
+export async function checkGuestFunctions(): Promise<{ post: boolean; edit: boolean; remove: boolean }> {
+  async function exists(name: string, args: Record<string, unknown>) {
+    const { error } = await supabase().rpc(name, args);
+    return !isMissingFunction(error);
+  }
+  const [post, edit, remove] = await Promise.all([
+    // 수정 열쇠를 받는 새 형태로 확인합니다. 옛 형태만 있으면 새 글에 열쇠가 저장되지 않아
+    // 수정도 삭제도 성립하지 않습니다.
+    exists("add_shared_card", { token: "", card_id: "", target_column: "", card_title: "", card_body: "", card_link: null, author: "", card_attachments: [], card_edit_key: "" }),
+    exists("update_shared_card", { token: "", card_id: "", card_title: "", card_body: "", card_link: null, edit_key: "", card_attachments: [] }),
+    exists("delete_shared_card", { token: "", card_id: "", edit_key: "" }),
+  ]);
+  return { post, edit, remove };
 }
 
 export async function addSharedCard(

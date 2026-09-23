@@ -141,7 +141,7 @@ function formatUpdated(value: number) {
   return new Date(value).toLocaleDateString("ko-KR", { year: "numeric", month: "short", day: "numeric" });
 }
 
-export function BoardHome({ boards, demo, showLogout, usage, usageLoading, onRefreshUsage, onSweep, onOpen, onCreate, onRename, onDelete, onLogout, onToggleShare }: {
+export function BoardHome({ boards, demo, showLogout, usage, usageLoading, onRefreshUsage, onSweep, onOpen, onCreate, onRename, onCopy, onDelete, onLogout, onToggleShare }: {
   boards: BoardData[];
   demo: boolean;
   showLogout: boolean;
@@ -152,6 +152,7 @@ export function BoardHome({ boards, demo, showLogout, usage, usageLoading, onRef
   onOpen: (boardId: string) => void;
   onCreate: () => void;
   onRename: (board: BoardData) => void;
+  onCopy: (board: BoardData) => void;
   onDelete: (board: BoardData) => void;
   onLogout: () => void;
   onToggleShare: (board: BoardData, enabled: boolean) => void;
@@ -247,6 +248,7 @@ export function BoardHome({ boards, demo, showLogout, usage, usageLoading, onRef
                     <DropdownMenuContent align="end">
                       <DropdownMenuItem onClick={() => onOpen(board.id)}><LayoutGrid />열기</DropdownMenuItem>
                       <DropdownMenuItem onClick={() => onRename(board)}><Pencil />이름 변경</DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => onCopy(board)}><Copy />보드 복사</DropdownMenuItem>
                       <DropdownMenuSeparator />
                       {board.shareEnabled && board.shareToken ? <>
                         <DropdownMenuItem onClick={() => copyLink(board)}><Copy />공유 링크 복사</DropdownMenuItem>

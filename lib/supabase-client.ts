@@ -205,6 +205,32 @@ export async function uploadGuestAttachment(file: File, boardId: string, attachm
   };
 }
 
+// 첨부 파일을 새 보드 폴더로 복사합니다. 서버 안에서 복사되므로 내려받고 다시 올리지 않습니다.
+// 실패한 것은 목록으로 돌려주어, 부르는 쪽이 그 첨부만 원래 경로로 되돌릴 수 있게 합니다.
+export async function copyAttachmentFiles(
+  files: { from: string; to: string }[],
+  onProgress?: (done: number) => void,
+): Promise<{ copied: number; failed: string[] }> {
+  const storage = supabase().storage.from(BUCKET);
+  const failed: string[] = [];
+  let done = 0;
+  // 한 번에 네 개씩. 많은 파일을 한꺼번에 던지면 저장소가 거부할 수 있습니다.
+  for (let index = 0; index < files.length; index += 4) {
+    await Promise.all(files.slice(index, index + 4).map(async (file) => {
+      try {
+        const { error } = await storage.copy(file.from, file.to);
+        if (error) failed.push(file.to);
+      } catch {
+        failed.push(file.to);
+      } finally {
+        done += 1;
+        onProgress?.(done);
+      }
+    }));
+  }
+  return { copied: files.length - failed.length, failed };
+}
+
 export async function removeAttachment(path?: string) {
   if (!path) return;
   const { error } = await supabase().storage.from(BUCKET).remove([path]);

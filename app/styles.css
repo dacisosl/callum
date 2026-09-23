@@ -280,6 +280,26 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .add-card-button.is-answer { gap: 6px; font-size: 13.5px; font-weight: 750; }
 .add-card-button.is-answer svg { width: 17px; }
 
+/* 보드 복사 창 */
+.copy-dialog .copy-body { display: grid; gap: 10px; padding: 4px 22px 2px; }
+.copy-body > label { display: grid; gap: 5px; color: #44525c; font-size: 12px; font-weight: 700; }
+.copy-body > label input { height: 40px; padding: 0 11px; border: 1px solid var(--border); border-radius: 10px; background: white; color: #1d2830; font: inherit; font-size: 14px; }
+.copy-list-head { display: flex; align-items: center; justify-content: space-between; color: #66737c; font-size: 12px; font-weight: 700; }
+.copy-list-head .text-button { color: #315fbc; font-size: 12px; }
+.copy-list { max-height: 34vh; margin: 0; padding: 0; overflow-y: auto; display: grid; gap: 6px; list-style: none; }
+.copy-list li { margin: 0; }
+.copy-list label { display: flex; align-items: center; gap: 9px; padding: 9px 11px; border: 1px solid var(--border); border-radius: 11px; background: #f9fafb; cursor: pointer; }
+.copy-list label:hover { border-color: #aebbc4; background: #f3f6f8; }
+.copy-list-title { min-width: 0; flex: 1; display: inline-flex; align-items: center; gap: 6px; }
+.copy-list-title svg { width: 14px; height: 14px; flex: none; color: #5a7fc4; }
+.copy-list-title strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
+.copy-list em { flex: none; color: #78848c; font-size: 11.5px; font-style: normal; font-weight: 700; }
+.copy-cards-row { display: flex; align-items: center; gap: 10px; padding: 11px; border: 1px solid var(--border); border-radius: 11px; background: white; cursor: pointer; }
+.copy-cards-row span { display: grid; gap: 2px; }
+.copy-cards-row strong { font-size: 13.5px; }
+.copy-cards-row small { color: #73808a; font-size: 11.5px; }
+.copy-note { margin: 0; padding: 9px 11px; border-radius: 10px; background: #f1f4f7; color: #55636d; font-size: 12px; line-height: 1.5; }
+
 /* 질문 설정·편집 창 */
 .question-dialog .question-body { display: grid; gap: 8px; padding: 4px 22px 2px; }
 .question-body label { display: grid; gap: 5px; color: #44525c; font-size: 12px; font-weight: 700; }
@@ -479,6 +499,8 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   .column-question p { -webkit-line-clamp: 2; font-size: 13px; }
   .column-question.is-open p { max-height: 34vh; }
   .question-dialog .question-body { padding: 4px 18px 2px; }
+  .copy-dialog .copy-body { padding: 4px 18px 2px; }
+  .copy-list { max-height: 30vh; }
   .card-dialog { max-height: 94vh; }
   .viewer-dialog { max-height: 94vh; border-radius: 16px; }
   .viewer-header { padding: 18px 60px 12px 16px; }

@@ -85,12 +85,14 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Switch } from "@/components/ui/switch";
 import { Toaster } from "@/components/ui/sonner";
+import { Checkbox } from "@/components/ui/checkbox";
 import { BoardHome } from "./board-home";
 import { cloneStarterBoard } from "@/lib/demo-data";
 import { supabaseConfigured } from "@/lib/supabase-config";
 import { publicSiteOrigin, shareLink } from "@/lib/site-url";
 import { AUTO_SWEEP_AGE, MANUAL_SWEEP_AGE } from "@/lib/attachment-sweep";
 import { missingGuestFeatures, sqlChoiceFor, type GuestFunctions } from "@/lib/rpc-errors";
+import { attachmentWeight, planBoardCopy } from "@/lib/board-copy";
 import {
   CARD_TONES,
   COLUMN_HUES,
@@ -966,6 +968,9 @@ export function BoardApp() {
   // 손님 기능에 필요한 데이터베이스 함수가 갖춰졌는지. 공유 설정 창을 열 때 한 번만 확인합니다.
   const [guestFunctions, setGuestFunctions] = useState<GuestFunctions | null>(null);
   const [copyingSql, setCopyingSql] = useState(false);
+  // 보드 복사 창. 어떤 칼럼을 가져올지 체크박스로 고릅니다.
+  const [copyTarget, setCopyTarget] = useState<{ board: BoardData; title: string; columnIds: string[]; includeCards: boolean } | null>(null);
+  const [copyProgress, setCopyProgress] = useState<number | null>(null);
 
   // 질문 설정·편집 대화상자. 질문은 여러 줄일 수 있어 이름 변경과 달리 별도 창을 씁니다.
   const [questionTarget, setQuestionTarget] = useState<{ columnId: string; columnTitle: string; text: string; answers: number } | null>(null);
@@ -1739,6 +1744,53 @@ export function BoardApp() {
     setNewColumnTitle(""); setNewColumnQuestion(""); setAddingColumn(false);
     if (question) toast.success("질문 섹션을 만들었습니다.");
   }
+  function openCopyDialog(board: BoardData) {
+    setCopyTarget({ board, title: `${board.title} 복사본`, columnIds: board.columns.map((column) => column.id), includeCards: true });
+  }
+
+  async function runBoardCopy() {
+    if (!copyTarget || copyProgress !== null) return;
+    const { board: source, columnIds, includeCards } = copyTarget;
+    const title = copyTarget.title.trim() || `${source.title} 복사본`;
+    if (!columnIds.length) return;
+    const { board: copy, files } = planBoardCopy(source, {
+      title, columnIds, includeCards,
+      newBoardId: makeId("board"),
+      // 데모 모드에는 저장소가 없어 첨부가 데이터 URL 입니다. 주인 폴더를 비워 파일 복사를 건너뜁니다.
+      ownerId: supabaseConfigured && user ? user.uid : undefined,
+      makeId, now: nowMs(),
+    });
+    setCopyProgress(0);
+    let note = "";
+    if (files.length) {
+      try {
+        const { failed } = await (await import("@/lib/supabase-client")).copyAttachmentFiles(files, (done) => setCopyProgress(done));
+        if (failed.length) {
+          // 옮기지 못한 파일은 원래 경로를 그대로 두어 지금 당장 첨부를 잃지 않게 합니다.
+          const stuck = new Set(failed);
+          const original = new Map(files.map((file) => [file.to, file.from]));
+          for (const column of copy.columns) {
+            for (const card of column.cards) {
+              for (const attachment of card.attachments) {
+                if (attachment.storagePath && stuck.has(attachment.storagePath)) attachment.storagePath = original.get(attachment.storagePath);
+                if (attachment.thumbnailPath && stuck.has(attachment.thumbnailPath)) attachment.thumbnailPath = original.get(attachment.thumbnailPath);
+              }
+            }
+          }
+          note = ` 파일 ${failed.length}개는 원본과 함께 씁니다.`;
+        }
+      } catch {
+        note = " 첨부 파일은 원본과 함께 씁니다.";
+      }
+    }
+    setBoards((current) => [copy, ...current]);
+    markDirty(copy.id);
+    setCopyProgress(null);
+    setCopyTarget(null);
+    const cards = copy.columns.reduce((sum, column) => sum + column.cards.length, 0);
+    toast.success(`${title}을(를) 만들었습니다. 칼럼 ${copy.columns.length}개${includeCards ? `, 카드 ${cards}개` : ""}.${note}`);
+  }
+
   function createBoard() {
     const now = Date.now();
     const board: BoardData = { id: makeId("board"), title: "새 보드", shareEnabled: false, shareToken: "", createdAt: now, updatedAt: now, columns: [{ id: makeId("column"), title: "첫 번째 칼럼", collapsed: false, cards: [] }] };
@@ -1871,6 +1923,7 @@ export function BoardApp() {
           usageLoading={usageLoading}
           onRefreshUsage={() => void refreshUsage()}
           onSweep={sweepAllBoards}
+          onCopy={openCopyDialog}
           onToggleShare={(board, enabled) => {
             updateBoard(board.id, (item) => ({ ...item, shareEnabled: enabled, shareToken: enabled ? item.shareToken || makeShareToken() : item.shareToken }));
             toast.success(enabled ? `${board.title} 공유 링크를 만들었습니다.` : `${board.title} 공유를 중지했습니다.`);
@@ -2009,6 +2062,53 @@ export function BoardApp() {
           <DialogTitle className="sr-only">이미지 전체 화면</DialogTitle>
           <DialogDescription className="sr-only">닫으려면 이미지를 누르거나 Esc 키를 누르세요.</DialogDescription>
           {lightboxUrl && <img src={lightboxUrl} alt="" onClick={() => setLightboxUrl(null)} />}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={Boolean(copyTarget)} onOpenChange={(open) => { if (!open && copyProgress === null) setCopyTarget(null); }}>
+        <DialogContent className="copy-dialog">
+          <DialogHeader>
+            <DialogTitle>보드 복사</DialogTitle>
+            <DialogDescription>가져올 칼럼을 고르세요. 복사본은 공유가 꺼진 채로 만들어지고 댓글은 따라가지 않습니다.</DialogDescription>
+          </DialogHeader>
+          {copyTarget && <div className="copy-body">
+            <label>새 보드 이름<input value={copyTarget.title} maxLength={80} onChange={(event) => setCopyTarget({ ...copyTarget, title: event.target.value })} /></label>
+            <div className="copy-list-head">
+              <span>칼럼 {copyTarget.columnIds.length} / {copyTarget.board.columns.length} 선택</span>
+              <button type="button" className="text-button" onClick={() => setCopyTarget({ ...copyTarget, columnIds: copyTarget.columnIds.length === copyTarget.board.columns.length ? [] : copyTarget.board.columns.map((column) => column.id) })}>
+                {copyTarget.columnIds.length === copyTarget.board.columns.length ? "전체 해제" : "전체 선택"}
+              </button>
+            </div>
+            <ul className="copy-list">
+              {copyTarget.board.columns.map((column) => {
+                const picked = copyTarget.columnIds.includes(column.id);
+                return (
+                  <li key={column.id}>
+                    <label>
+                      <Checkbox checked={picked} onCheckedChange={(next) => setCopyTarget({ ...copyTarget, columnIds: next ? [...copyTarget.columnIds, column.id] : copyTarget.columnIds.filter((id) => id !== column.id) })} aria-label={`${column.title} 복사`} />
+                      <span className="copy-list-title">{columnQuestion(column) && <MessageCircleQuestion aria-label="질문 섹션" />}<strong>{column.title}</strong></span>
+                      <em>카드 {column.cards.length}</em>
+                    </label>
+                  </li>
+                );
+              })}
+            </ul>
+            <label className="copy-cards-row">
+              <Checkbox checked={copyTarget.includeCards} onCheckedChange={(next) => setCopyTarget({ ...copyTarget, includeCards: Boolean(next) })} aria-label="카드도 함께 복사" />
+              <span><strong>카드도 함께 복사</strong><small>{copyTarget.includeCards ? "끄면 칼럼 구성과 질문만 가져오고 카드는 비웁니다" : "칼럼 구성과 질문만 가져옵니다"}</small></span>
+            </label>
+            {(() => {
+              const weight = attachmentWeight(copyTarget.board, copyTarget.columnIds, copyTarget.includeCards);
+              return weight.count > 0 ? <p className="copy-note">첨부 {weight.count}개({formatBytes(weight.bytes)})도 새 보드 몫으로 복사되어 저장 공간을 그만큼 더 씁니다.</p> : null;
+            })()}
+            {copyProgress !== null && <p className="copy-note">복사하는 중… 파일 {copyProgress}개 완료</p>}
+          </div>}
+          <DialogFooter>
+            <button className="secondary-button" onClick={() => setCopyTarget(null)} disabled={copyProgress !== null}>취소</button>
+            <button className="primary-button" onClick={() => void runBoardCopy()} disabled={!copyTarget?.columnIds.length || copyProgress !== null}>
+              {copyProgress !== null && <LoaderCircle className="spin" aria-hidden="true" />}복사
+            </button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

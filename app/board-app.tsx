@@ -93,6 +93,7 @@ import { publicSiteOrigin, shareLink } from "@/lib/site-url";
 import { AUTO_SWEEP_AGE, MANUAL_SWEEP_AGE } from "@/lib/attachment-sweep";
 import { missingGuestFeatures, sqlChoiceFor, type GuestFunctions } from "@/lib/rpc-errors";
 import { attachmentWeight, planBoardCopy } from "@/lib/board-copy";
+import { looksLikeQuery, MAX_QUERY_LENGTH, SEARCH_KINDS, type SearchKind, type SearchResult } from "@/lib/search-results";
 import {
   CARD_TONES,
   COLUMN_HUES,
@@ -957,6 +958,12 @@ export function BoardApp() {
   const [draft, setDraft] = useState<CardDraft | null>(null);
   const [linkInput, setLinkInput] = useState("");
   const [linkLoading, setLinkLoading] = useState(false);
+  // 편집창의 링크 검색 패널. 네이버 검색 결과에서 골라 링크로 붙입니다.
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchKind, setSearchKind] = useState<SearchKind>("webkr");
+  const [searchState, setSearchState] = useState<{ status: "idle" | "loading" | "done" | "error"; results: SearchResult[]; message?: string; setup?: boolean }>({ status: "idle", results: [] });
+  const [addingResult, setAddingResult] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
@@ -1459,6 +1466,7 @@ export function BoardApp() {
     setViewerCardId(null);
     setDraft({ columnId, title: "", body: "", attachments: [], tone: "default" });
     setLinkInput("");
+    setSearchOpen(false);
     setEditorOpen(true);
   }
   // 카드를 크게 보는 뷰어. 공유받은 사람과 주인이 같은 화면을 보고, 주인에게만 편집 버튼이 붙습니다.
@@ -1472,6 +1480,7 @@ export function BoardApp() {
     setDraft({ ...structuredClone(card), columnId });
     if (readOnly && card.guestAuthor) setCommentAuthor(card.guestAuthor);
     setLinkInput(card.link?.url ?? "");
+    setSearchOpen(false);
     setEditorOpen(true);
   }
   // 손님이 자기가 올린 글을 고칠 수 있는지. 그 글을 올린 브라우저에만 열쇠가 있습니다.
@@ -1612,6 +1621,53 @@ export function BoardApp() {
     try { return new URL(url).toString(); } catch { return null; }
   }
 
+  // 링크 검색 패널을 엽니다. 링크 칸에 검색어가 있으면 그것을, 없으면 카드 제목을 검색어로 채웁니다.
+  function openLinkSearch(initial?: string) {
+    const fromInput = looksLikeQuery(linkInput) ? linkInput.trim() : "";
+    const query = (initial ?? (fromInput || draft?.title.trim() || "")).slice(0, MAX_QUERY_LENGTH);
+    setSearchOpen(true);
+    setSearchQuery(query);
+    setSearchState({ status: "idle", results: [] });
+    if (query) void runLinkSearch(query, searchKind);
+  }
+
+  async function runLinkSearch(query = searchQuery, kind = searchKind) {
+    const text = query.trim();
+    if (!text) { setSearchState({ status: "error", results: [], message: "검색어를 입력해 주세요." }); return; }
+    setSearchState({ status: "loading", results: [] });
+    try {
+      const response = await fetch(`/api/link-search?kind=${kind}&q=${encodeURIComponent(text)}`);
+      const data = (await response.json().catch(() => ({}))) as { results?: SearchResult[]; error?: string; message?: string };
+      if (!response.ok) {
+        const setup = data.error === "setup";
+        setSearchState({ status: "error", results: [], setup, message: setup
+          ? (readOnly ? "지금은 링크 검색을 쓸 수 없습니다. 주소를 직접 붙여 넣어 주세요." : "네이버 검색 키가 아직 없습니다. README 의 \"링크 검색 설정\" 순서대로 키를 넣고 다시 배포해 주세요.")
+          : data.message || "검색하지 못했습니다." });
+        return;
+      }
+      setSearchState({ status: "done", results: data.results ?? [] });
+    } catch {
+      setSearchState({ status: "error", results: [], message: "검색하지 못했습니다. 인터넷 연결을 확인해 주세요." });
+    }
+  }
+
+  // 결과 하나를 골라 링크로 붙입니다. 미리보기를 받지 못해도 검색 결과의 제목·설명으로 붙입니다.
+  async function chooseSearchResult(result: SearchResult) {
+    setAddingResult(result.url);
+    setLinkInput(result.url);
+    let link: LinkPreviewData;
+    try { link = await requestLinkPreview(result.url); }
+    catch { link = { url: result.url, title: result.title, description: result.description, siteName: result.siteName }; }
+    // 미리보기가 사이트 이름만 돌려주면 검색 결과의 제목·설명이 더 쓸모 있습니다.
+    if (!link.title || link.title === link.siteName) link = { ...link, title: result.title };
+    if (!link.description) link = { ...link, description: result.description };
+    setDraft((current) => current ? { ...current, link } : current);
+    setLinkInput(link.url);
+    setAddingResult(null);
+    setSearchOpen(false);
+    toast.success("링크를 붙였습니다.");
+  }
+
   async function requestLinkPreview(url: string): Promise<LinkPreviewData> {
     const response = await fetch(`/api/link-preview?url=${encodeURIComponent(url)}`);
     const data = (await response.json()) as LinkPreviewData & { error?: string };
@@ -1621,6 +1677,7 @@ export function BoardApp() {
 
   async function fetchLinkPreview() {
     if (!draft) return;
+    if (looksLikeQuery(linkInput)) { openLinkSearch(linkInput.trim()); return; }
     const url = normalizeLinkInput(linkInput);
     if (!url) { if (url === null) toast.error("올바른 링크를 입력해 주세요."); return; }
     setLinkLoading(true);
@@ -1639,6 +1696,7 @@ export function BoardApp() {
     const url = normalizeLinkInput(linkInput);
     if (url === "") return undefined;
     if (url === null) { toast.error("올바른 링크를 입력해 주세요."); throw new Error("invalid link"); }
+    if (looksLikeQuery(linkInput)) { toast.error("링크 칸에 주소가 아닌 글자가 있습니다. 검색으로 고르거나 지워 주세요."); openLinkSearch(linkInput.trim()); throw new Error("query in link"); }
     if (draft.link && (draft.link.url === url || draft.link.url === linkInput.trim())) return draft.link;
     try {
       return await requestLinkPreview(url);
@@ -2013,7 +2071,36 @@ export function BoardApp() {
             <label>{draftQuestion ? "제목 (선택)" : "제목"}<input value={draft.title} readOnly={readOnly && !guestPosting} maxLength={120} onChange={(event) => setDraft({ ...draft, title: event.target.value })} placeholder={draftQuestion ? "비워 두면 이름이 제목이 됩니다" : "무엇을 모아둘까요?"} /></label>
             <label>{draftQuestion ? "답변" : "내용"}<textarea value={draft.body} readOnly={readOnly && !guestPosting} maxLength={3000} onChange={(event) => setDraft({ ...draft, body: event.target.value })} placeholder={draftQuestion ? "질문에 대한 답을 적어 주세요" : "메모를 입력하세요"} /></label>
             {!readOnly && <section><div className="section-label"><Palette />카드 색</div><div className="tone-swatches" role="radiogroup" aria-label="카드 색">{CARD_TONES.map((tone) => <button key={tone.value} type="button" role="radio" aria-checked={(draft.tone ?? "default") === tone.value} className={`tone-swatch card-tone-${tone.value}${(draft.tone ?? "default") === tone.value ? " is-active" : ""}`} onClick={() => setDraft({ ...draft, tone: tone.value })} title={tone.label} aria-label={tone.label} />)}</div></section>}
-            <section className="link-editor"><div className="section-label"><Link2 />링크</div>{(!readOnly || guestPosting) && <div className="link-input-row"><input value={linkInput} onChange={(event) => { const value = event.target.value; setLinkInput(value); if (!value.trim()) setDraft((current) => current ? { ...current, link: undefined } : current); }} placeholder="https://..." /><button className="secondary-button" onClick={() => void fetchLinkPreview()} disabled={linkLoading}>{linkLoading && <LoaderCircle className="spin" />}미리보기</button></div>}{draft.link && <a className="link-preview" href={draft.link.url} target="_blank" rel="noreferrer"><LinkRowImage key={`${draft.link.url}|${draft.link.image ?? ""}`} link={draft.link} /><span><small>{getVideoEmbed(draft.link.url) ? "동영상 · 카드에서 바로 재생" : linkLabel(draft.link)}</small><strong>{draft.link.title}</strong><em>{draft.link.description}</em></span><ExternalLink /></a>}{draft.link && (!readOnly || guestPosting) && <button type="button" className="text-button link-remove" onClick={removeDraftLink}><X />링크 제거</button>}</section>
+            <section className="link-editor"><div className="section-label"><Link2 />링크</div>{(!readOnly || guestPosting) && <div className="link-input-row"><input value={linkInput} onChange={(event) => { const value = event.target.value; setLinkInput(value); if (!value.trim()) setDraft((current) => current ? { ...current, link: undefined } : current); }} placeholder="https://..." /><button className="secondary-button" onClick={() => void fetchLinkPreview()} disabled={linkLoading}>{linkLoading && <LoaderCircle className="spin" />}미리보기</button><button type="button" className={`secondary-button link-search-toggle${searchOpen ? " is-open" : ""}`} onClick={() => (searchOpen ? setSearchOpen(false) : openLinkSearch())} aria-expanded={searchOpen} aria-label="링크 검색"><Search aria-hidden="true" />검색</button></div>}
+              {searchOpen && (!readOnly || guestPosting) && (
+                <div className="link-search" role="search">
+                  <div className="link-search-bar">
+                    <input autoFocus value={searchQuery} maxLength={MAX_QUERY_LENGTH} onChange={(event) => setSearchQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.nativeEvent.isComposing) { event.preventDefault(); event.stopPropagation(); void runLinkSearch(); } }} placeholder="검색어를 입력하세요" aria-label="링크 검색어" />
+                    <button type="button" className="primary-button" onClick={() => void runLinkSearch()} disabled={searchState.status === "loading"}>{searchState.status === "loading" ? <LoaderCircle className="spin" aria-hidden="true" /> : <Search aria-hidden="true" />}검색</button>
+                  </div>
+                  <div className="link-search-kinds" role="tablist" aria-label="검색 종류">
+                    {SEARCH_KINDS.map((option) => <button key={option.value} type="button" role="tab" aria-selected={searchKind === option.value} className={searchKind === option.value ? "is-active" : undefined} onClick={() => { setSearchKind(option.value); if (searchQuery.trim()) void runLinkSearch(searchQuery, option.value); }}>{option.label}</button>)}
+                    <span className="link-search-by">네이버 검색</span>
+                  </div>
+                  {searchState.status === "loading" && <p className="link-search-note"><LoaderCircle className="spin" aria-hidden="true" />검색하는 중…</p>}
+                  {searchState.status === "error" && <p className={`link-search-note${searchState.setup ? " is-setup" : " is-error"}`}>{searchState.message}</p>}
+                  {searchState.status === "done" && !searchState.results.length && <p className="link-search-note">검색 결과가 없습니다. 다른 검색어나 종류로 찾아보세요.</p>}
+                  {searchState.status === "done" && searchState.results.length > 0 && (
+                    <ul className="link-search-results">
+                      {searchState.results.map((result) => (
+                        <li key={result.url}>
+                          <div>
+                            <a href={result.url} target="_blank" rel="noreferrer">{result.title}<ExternalLink aria-hidden="true" /></a>
+                            <small>{result.siteName}{result.date && ` · ${result.date}`}</small>
+                            {result.description && <p>{result.description}</p>}
+                          </div>
+                          <button type="button" className="secondary-button" onClick={() => void chooseSearchResult(result)} disabled={Boolean(addingResult)} aria-label={`${result.title} 링크로 추가`}>{addingResult === result.url ? <LoaderCircle className="spin" aria-hidden="true" /> : <Plus aria-hidden="true" />}추가</button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}{draft.link && <a className="link-preview" href={draft.link.url} target="_blank" rel="noreferrer"><LinkRowImage key={`${draft.link.url}|${draft.link.image ?? ""}`} link={draft.link} /><span><small>{getVideoEmbed(draft.link.url) ? "동영상 · 카드에서 바로 재생" : linkLabel(draft.link)}</small><strong>{draft.link.title}</strong><em>{draft.link.description}</em></span><ExternalLink /></a>}{draft.link && (!readOnly || guestPosting) && <button type="button" className="text-button link-remove" onClick={removeDraftLink}><X />링크 제거</button>}</section>
             <section><div className="section-label"><UploadCloud />첨부</div>{(!readOnly || guestPosting) && <button className="drop-zone" type="button" onClick={() => fileInputRef.current?.click()} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); void addFiles(event.dataTransfer.files); }}>{uploading ? <LoaderCircle className="spin" /> : <UploadCloud />}<span>이미지 또는 PDF를 선택하거나 끌어 놓으세요. 복사한 이미지는 Ctrl+V로 붙여넣어도 됩니다.</span><small>{supabaseConfigured ? "파일당 최대 30MB" : "데모 모드 파일당 최대 2MB"} · 동영상 제외</small><input ref={fileInputRef} hidden type="file" multiple accept="image/*,application/pdf" onChange={(event) => event.target.files && void addFiles(event.target.files)} /></button>}
               {draft.attachments.length > 0 && <div className="attachment-grid">{draft.attachments.map((attachment) => <article className="attachment-item" key={attachment.id}>{attachment.kind === "image" ? <img src={attachment.url} alt={attachment.name} /> : attachment.thumbnailUrl ? <img src={attachment.thumbnailUrl} alt={attachment.name} /> : <span className="attachment-icon" aria-hidden="true"><FileText /></span>}<div><strong>{attachment.name}</strong><span>{attachment.kind === "pdf" ? "PDF" : "이미지"} · {formatBytes(attachment.size)}</span></div><a href={attachment.url} target="_blank" rel="noreferrer" aria-label={`${attachment.name} 열기`}><ExternalLink /></a>{(!readOnly || guestPosting) && <button onClick={() => deleteDraftAttachment(attachment)} aria-label={`${attachment.name} 삭제`}><X /></button>}</article>)}</div>}
             </section>

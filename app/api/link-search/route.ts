@@ -35,9 +35,17 @@ function fail(status: number, error: string, message: string) {
 }
 
 export async function GET(request: NextRequest) {
-  const clientId = process.env.NAVER_CLIENT_ID;
-  const clientSecret = process.env.NAVER_CLIENT_SECRET;
-  if (!clientId || !clientSecret) return fail(503, "setup", "검색 키가 아직 설정되지 않았습니다.");
+  // 붙여 넣을 때 섞인 앞뒤 공백·줄바꿈은 떼어 냅니다. 남아 있으면 네이버로 보내는 헤더가 깨집니다.
+  const clientId = process.env.NAVER_CLIENT_ID?.trim();
+  const clientSecret = process.env.NAVER_CLIENT_SECRET?.trim();
+  if (!clientId || !clientSecret) {
+    // 어느 이름이 빠졌는지만 알려 줍니다. 값은 절대 내보내지 않습니다.
+    const missing = [!clientId && "NAVER_CLIENT_ID", !clientSecret && "NAVER_CLIENT_SECRET"].filter(Boolean);
+    return NextResponse.json(
+      { error: "setup", message: "검색 키가 아직 설정되지 않았습니다.", missing },
+      { status: 503, headers: { "cache-control": "no-store" } },
+    );
+  }
 
   const query = (request.nextUrl.searchParams.get("q") ?? "").replace(/\s+/g, " ").trim();
   const kindParam = request.nextUrl.searchParams.get("kind") ?? "webkr";

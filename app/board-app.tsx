@@ -1637,12 +1637,14 @@ export function BoardApp() {
     setSearchState({ status: "loading", results: [] });
     try {
       const response = await fetch(`/api/link-search?kind=${kind}&q=${encodeURIComponent(text)}`);
-      const data = (await response.json().catch(() => ({}))) as { results?: SearchResult[]; error?: string; message?: string };
+      const data = (await response.json().catch(() => ({}))) as { results?: SearchResult[]; error?: string; message?: string; hint?: string; detail?: string };
       if (!response.ok) {
         const setup = data.error === "setup";
-        setSearchState({ status: "error", results: [], setup, message: setup
+        // 키가 틀렸을 때 보드 주인에게는 고칠 곳과 네이버의 원래 문구를 보여 줍니다.
+        const keyHint = data.error === "key" && !readOnly && data.hint ? `${data.hint}${data.detail ? ` (네이버: ${data.detail})` : ""}` : "";
+        setSearchState({ status: "error", results: [], setup: setup || Boolean(keyHint), message: setup
           ? (readOnly ? "지금은 링크 검색을 쓸 수 없습니다. 주소를 직접 붙여 넣어 주세요." : "네이버 검색 키가 아직 없습니다. README 의 \"링크 검색 설정\" 순서대로 키를 넣고 다시 배포해 주세요.")
-          : data.message || "검색하지 못했습니다." });
+          : keyHint || data.message || "검색하지 못했습니다." });
         return;
       }
       setSearchState({ status: "done", results: data.results ?? [] });

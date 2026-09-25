@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { isSearchKind, MAX_QUERY_LENGTH, normalizeNaverItems, type SearchResult } from "@/lib/search-results";
+import { isSearchKind, MAX_QUERY_LENGTH, naverKeyHint, normalizeNaverItems, type SearchResult } from "@/lib/search-results";
 
 // 편집창의 링크 검색. 네이버 검색 API 를 서버에서 대신 불러 결과를 돌려줍니다.
 // 키(NAVER_CLIENT_ID, NAVER_CLIENT_SECRET)는 이 경로에서만 읽고 브라우저로는 절대 내보내지 않습니다.
@@ -75,7 +75,20 @@ export async function GET(request: NextRequest) {
     return fail(502, "upstream", "검색 서비스에 연결하지 못했습니다. 잠시 뒤 다시 시도해 주세요.");
   }
 
-  if (response.status === 401 || response.status === 403) return fail(502, "key", "검색 키가 올바르지 않습니다. 보드 주인에게 알려 주세요.");
+  if (response.status === 401 || response.status === 403) {
+    const reason = (await response.json().catch(() => ({}))) as { errorMessage?: unknown; errorCode?: unknown };
+    const detail = typeof reason.errorMessage === "string" ? reason.errorMessage.slice(0, 200) : "";
+    return NextResponse.json(
+      {
+        error: "key",
+        message: "검색 키가 올바르지 않습니다. 보드 주인에게 알려 주세요.",
+        // 보드 주인에게만 보여 줄 고칠 곳 안내와, 네이버가 보낸 원래 문구(키 값은 들어 있지 않음)
+        hint: naverKeyHint(response.status, reason.errorMessage),
+        detail: [response.status, typeof reason.errorCode === "string" ? reason.errorCode : "", detail].filter(Boolean).join(" "),
+      },
+      { status: 502, headers: { "cache-control": "no-store" } },
+    );
+  }
   if (response.status === 429) return fail(429, "quota", "오늘 검색 한도를 넘었습니다. 내일 다시 쓸 수 있습니다.");
   if (!response.ok) return fail(502, "upstream", "검색 서비스가 응답하지 않습니다. 잠시 뒤 다시 시도해 주세요.");
 

@@ -100,3 +100,14 @@ export function looksLikeQuery(value: string): boolean {
   if (/^localhost(:\d+)?(\/|$)/i.test(first)) return false;
   return true;
 }
+
+// 네이버가 키를 거절(401·403)했을 때 돌려주는 errorMessage 를 보고, 보드 주인이 고칠 곳을 한 줄로 알려 줍니다.
+// errorMessage 에는 키 값이 들어 있지 않아 그대로 보여 줘도 됩니다.
+export function naverKeyHint(status: number, errorMessage: unknown): string {
+  const text = typeof errorMessage === "string" ? errorMessage : "";
+  if (/scope status invalid/i.test(text)) return "네이버 애플리케이션에 '검색' API 가 추가되어 있지 않습니다. 네이버 개발자센터 → 내 애플리케이션 → API 설정에서 '검색' 을 추가해 주세요.";
+  if (/not exist client id/i.test(text)) return "Client ID 가 틀렸습니다. Vercel 의 NAVER_CLIENT_ID 값을 네이버 개발자센터의 Client ID 로 다시 넣고 Redeploy 해 주세요.";
+  if (/client secret/i.test(text)) return "Client Secret 이 틀렸습니다. Vercel 의 NAVER_CLIENT_SECRET 값을 다시 넣고 Redeploy 해 주세요.";
+  if (status === 403) return "네이버가 이 키의 검색 사용을 막았습니다. 네이버 개발자센터 → 내 애플리케이션에서 '검색' API 와 서비스 상태를 확인해 주세요.";
+  return "네이버가 키를 받아 주지 않았습니다. Client ID 와 Client Secret 이 서로 바뀌지 않았는지, 끝까지 복사했는지 확인하고 Redeploy 해 주세요.";
+}

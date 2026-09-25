@@ -46,7 +46,6 @@ import {
   RotateCcw,
   Search,
   ClipboardPaste,
-  Globe,
   Share2,
   Trash2,
   UploadCloud,
@@ -95,7 +94,7 @@ import { publicSiteOrigin, shareLink } from "@/lib/site-url";
 import { AUTO_SWEEP_AGE, MANUAL_SWEEP_AGE } from "@/lib/attachment-sweep";
 import { missingGuestFeatures, sqlChoiceFor, type GuestFunctions } from "@/lib/rpc-errors";
 import { attachmentWeight, planBoardCopy } from "@/lib/board-copy";
-import { extractUrl, looksLikeQuery, MAX_QUERY_LENGTH, SEARCH_KINDS, WEB_SEARCH_ENGINES, webSearchUrl, type SearchKind, type SearchResult, type WebSearchEngine } from "@/lib/search-results";
+import { extractUrl, looksLikeQuery, MAX_QUERY_LENGTH, webSearchUrl } from "@/lib/search-results";
 import {
   CARD_TONES,
   COLUMN_HUES,
@@ -960,15 +959,10 @@ export function BoardApp() {
   const [draft, setDraft] = useState<CardDraft | null>(null);
   const [linkInput, setLinkInput] = useState("");
   const [linkLoading, setLinkLoading] = useState(false);
-  // 편집창의 링크 검색 패널. 구글·네이버를 새 창으로 열어 찾은 주소를 복사해 오거나,
-  // 네이버 검색 키가 있으면 결과 목록에서 바로 골라 붙입니다.
+  // 편집창의 링크 검색 패널. 구글을 새 창으로 열고, 찾은 주소를 복사해 와서 붙입니다.
   const [searchOpen, setSearchOpen] = useState(false);
-  // 네이버 검색 키로 결과를 바로 받을 수 있는지. 키가 없거나 틀리면 "off" 가 되어 검색 버튼이 새 창 검색으로 바뀝니다.
-  const [apiSearch, setApiSearch] = useState<"unknown" | "on" | "off">("unknown");
   const [searchQuery, setSearchQuery] = useState("");
-  const [searchKind, setSearchKind] = useState<SearchKind>("webkr");
-  const [searchState, setSearchState] = useState<{ status: "idle" | "loading" | "done" | "error"; results: SearchResult[]; message?: string; setup?: boolean }>({ status: "idle", results: [] });
-  const [addingResult, setAddingResult] = useState<string | null>(null);
+  const [pastingLink, setPastingLink] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
@@ -1632,15 +1626,13 @@ export function BoardApp() {
     const query = (initial ?? (fromInput || draft?.title.trim() || "")).slice(0, MAX_QUERY_LENGTH);
     setSearchOpen(true);
     setSearchQuery(query);
-    setSearchState((current) => apiSearch === "off" ? current : { status: "idle", results: [] });
-    if (query && apiSearch !== "off") void runLinkSearch(query, searchKind);
   }
 
-  // 구글·네이버 검색을 새 창으로 엽니다. 컴퓨터에서는 편집창이 가려지지 않게 옆에 작은 창으로 띄웁니다.
-  function openWebSearch(engine: WebSearchEngine) {
+  // 구글 검색을 새 창으로 엽니다. 컴퓨터에서는 편집창이 가려지지 않게 옆에 작은 창으로 띄웁니다.
+  function openWebSearch() {
     const text = searchQuery.trim();
     if (!text) { toast.error("검색어를 입력해 주세요."); return; }
-    const url = webSearchUrl(engine, text);
+    const url = webSearchUrl(text);
     const desktop = window.matchMedia("(min-width: 900px) and (pointer: fine)").matches;
     if (!desktop) { window.open(url, "_blank", "noopener,noreferrer"); return; }
     const width = Math.min(1000, Math.round(window.screen.availWidth * 0.55));
@@ -1657,59 +1649,14 @@ export function BoardApp() {
     catch { toast.error("복사한 주소를 읽지 못했습니다. 위 링크 칸을 길게 누르거나 Ctrl+V 로 붙여 넣어 주세요."); return; }
     const url = extractUrl(text);
     if (!url) { toast.error("복사한 글에 주소가 없습니다. 검색 창에서 페이지 주소를 복사해 주세요."); return; }
-    setAddingResult(url);
+    setPastingLink(true);
     setLinkInput(url);
     let link: LinkPreviewData;
     try { link = await requestLinkPreview(url); }
     catch { const host = hostOf(url); link = { url, title: host, description: "", siteName: host }; }
     setDraft((current) => current ? { ...current, link } : current);
     setLinkInput(link.url);
-    setAddingResult(null);
-    setSearchOpen(false);
-    toast.success("링크를 붙였습니다.");
-  }
-
-  async function runLinkSearch(query = searchQuery, kind = searchKind) {
-    const text = query.trim();
-    if (!text) { setSearchState({ status: "error", results: [], message: "검색어를 입력해 주세요." }); return; }
-    if (apiSearch === "off") { openWebSearch("google"); return; }
-    setSearchState({ status: "loading", results: [] });
-    try {
-      const response = await fetch(`/api/link-search?kind=${kind}&q=${encodeURIComponent(text)}`);
-      const data = (await response.json().catch(() => ({}))) as { results?: SearchResult[]; error?: string; message?: string; hint?: string; detail?: string };
-      if (!response.ok) {
-        // 키가 없거나 틀리면 결과 목록 대신 새 창 검색을 씁니다. 손님에게는 안내 없이 버튼만 보여 줍니다.
-        if (data.error === "setup" || data.error === "key") {
-          setApiSearch("off");
-          const ownerNote = data.error === "setup"
-            ? "네이버 검색 키가 없어 결과 목록은 보여 줄 수 없습니다. 위 버튼으로 찾아 주세요."
-            : `네이버 검색 키가 맞지 않아 결과 목록은 보여 줄 수 없습니다. 위 버튼으로 찾아 주세요. ${data.hint ?? ""}${data.detail ? ` (네이버: ${data.detail})` : ""}`;
-          setSearchState({ status: readOnly ? "idle" : "error", results: [], setup: true, message: ownerNote.trim() });
-          return;
-        }
-        setSearchState({ status: "error", results: [], message: data.message || "검색하지 못했습니다." });
-        return;
-      }
-      setApiSearch("on");
-      setSearchState({ status: "done", results: data.results ?? [] });
-    } catch {
-      setSearchState({ status: "error", results: [], message: "검색하지 못했습니다. 인터넷 연결을 확인해 주세요." });
-    }
-  }
-
-  // 결과 하나를 골라 링크로 붙입니다. 미리보기를 받지 못해도 검색 결과의 제목·설명으로 붙입니다.
-  async function chooseSearchResult(result: SearchResult) {
-    setAddingResult(result.url);
-    setLinkInput(result.url);
-    let link: LinkPreviewData;
-    try { link = await requestLinkPreview(result.url); }
-    catch { link = { url: result.url, title: result.title, description: result.description, siteName: result.siteName }; }
-    // 미리보기가 사이트 이름만 돌려주면 검색 결과의 제목·설명이 더 쓸모 있습니다.
-    if (!link.title || link.title === link.siteName) link = { ...link, title: result.title };
-    if (!link.description) link = { ...link, description: result.description };
-    setDraft((current) => current ? { ...current, link } : current);
-    setLinkInput(link.url);
-    setAddingResult(null);
+    setPastingLink(false);
     setSearchOpen(false);
     toast.success("링크를 붙였습니다.");
   }
@@ -2121,35 +2068,11 @@ export function BoardApp() {
               {searchOpen && (!readOnly || guestPosting) && (
                 <div className="link-search" role="search">
                   <div className="link-search-bar">
-                    <input autoFocus value={searchQuery} maxLength={MAX_QUERY_LENGTH} onChange={(event) => setSearchQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.nativeEvent.isComposing) { event.preventDefault(); event.stopPropagation(); void runLinkSearch(); } }} placeholder="검색어를 입력하세요" aria-label="링크 검색어" />
-                    <button type="button" className="primary-button" onClick={() => void runLinkSearch()} disabled={searchState.status === "loading"}>{searchState.status === "loading" ? <LoaderCircle className="spin" aria-hidden="true" /> : <Search aria-hidden="true" />}검색</button>
+                    <input autoFocus value={searchQuery} maxLength={MAX_QUERY_LENGTH} onChange={(event) => setSearchQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.nativeEvent.isComposing) { event.preventDefault(); event.stopPropagation(); openWebSearch(); } }} placeholder="검색어를 입력하세요" aria-label="링크 검색어" />
+                    <button type="button" className="primary-button" onClick={openWebSearch}><Search aria-hidden="true" />구글 검색<ExternalLink aria-hidden="true" /></button>
                   </div>
-                  <div className="link-search-web">
-                    {WEB_SEARCH_ENGINES.map((engine) => <button key={engine.value} type="button" className="secondary-button" onClick={() => openWebSearch(engine.value)}><Globe aria-hidden="true" />{engine.label}에서 찾기<ExternalLink aria-hidden="true" /></button>)}
-                    <button type="button" className="secondary-button is-paste" onClick={() => void pasteCopiedLink()} disabled={Boolean(addingResult)}>{addingResult && !searchState.results.some((result) => result.url === addingResult) ? <LoaderCircle className="spin" aria-hidden="true" /> : <ClipboardPaste aria-hidden="true" />}복사한 주소 붙이기</button>
-                  </div>
+                  <button type="button" className="secondary-button link-search-paste" onClick={() => void pasteCopiedLink()} disabled={pastingLink}>{pastingLink ? <LoaderCircle className="spin" aria-hidden="true" /> : <ClipboardPaste aria-hidden="true" />}복사한 주소 붙이기</button>
                   <p className="link-search-help">새 창에서 찾은 페이지의 주소를 복사한 뒤, 이 창으로 돌아와 <b>복사한 주소 붙이기</b>를 누르세요.</p>
-                  {apiSearch !== "off" && <div className="link-search-kinds" role="tablist" aria-label="검색 종류">
-                    {SEARCH_KINDS.map((option) => <button key={option.value} type="button" role="tab" aria-selected={searchKind === option.value} className={searchKind === option.value ? "is-active" : undefined} onClick={() => { setSearchKind(option.value); if (searchQuery.trim()) void runLinkSearch(searchQuery, option.value); }}>{option.label}</button>)}
-                    <span className="link-search-by">네이버 검색 결과</span>
-                  </div>}
-                  {searchState.status === "loading" && <p className="link-search-note"><LoaderCircle className="spin" aria-hidden="true" />검색하는 중…</p>}
-                  {searchState.status === "error" && <p className={`link-search-note${searchState.setup ? " is-setup" : " is-error"}`}>{searchState.message}</p>}
-                  {searchState.status === "done" && !searchState.results.length && <p className="link-search-note">검색 결과가 없습니다. 다른 검색어나 종류로 찾아보세요.</p>}
-                  {searchState.status === "done" && searchState.results.length > 0 && (
-                    <ul className="link-search-results">
-                      {searchState.results.map((result) => (
-                        <li key={result.url}>
-                          <div>
-                            <a href={result.url} target="_blank" rel="noreferrer">{result.title}<ExternalLink aria-hidden="true" /></a>
-                            <small>{result.siteName}{result.date && ` · ${result.date}`}</small>
-                            {result.description && <p>{result.description}</p>}
-                          </div>
-                          <button type="button" className="secondary-button" onClick={() => void chooseSearchResult(result)} disabled={Boolean(addingResult)} aria-label={`${result.title} 링크로 추가`}>{addingResult === result.url ? <LoaderCircle className="spin" aria-hidden="true" /> : <Plus aria-hidden="true" />}추가</button>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
                 </div>
               )}{draft.link && <a className="link-preview" href={draft.link.url} target="_blank" rel="noreferrer"><LinkRowImage key={`${draft.link.url}|${draft.link.image ?? ""}`} link={draft.link} /><span><small>{getVideoEmbed(draft.link.url) ? "동영상 · 카드에서 바로 재생" : linkLabel(draft.link)}</small><strong>{draft.link.title}</strong><em>{draft.link.description}</em></span><ExternalLink /></a>}{draft.link && (!readOnly || guestPosting) && <button type="button" className="text-button link-remove" onClick={removeDraftLink}><X />링크 제거</button>}</section>
             <section><div className="section-label"><UploadCloud />첨부</div>{(!readOnly || guestPosting) && <button className="drop-zone" type="button" onClick={() => fileInputRef.current?.click()} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); void addFiles(event.dataTransfer.files); }}>{uploading ? <LoaderCircle className="spin" /> : <UploadCloud />}<span>이미지 또는 PDF를 선택하거나 끌어 놓으세요. 복사한 이미지는 Ctrl+V로 붙여넣어도 됩니다.</span><small>{supabaseConfigured ? "파일당 최대 30MB" : "데모 모드 파일당 최대 2MB"} · 동영상 제외</small><input ref={fileInputRef} hidden type="file" multiple accept="image/*,application/pdf" onChange={(event) => event.target.files && void addFiles(event.target.files)} /></button>}

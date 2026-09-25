@@ -289,32 +289,11 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .link-search-bar input { min-width: 0; flex: 1; height: 38px; padding: 0 11px; border: 1px solid var(--border); border-radius: 10px; background: white; color: #1d2830; font: inherit; font-size: 14px; }
 .link-search-bar .primary-button { display: inline-flex; align-items: center; gap: 5px; height: 38px; padding: 0 12px; font-size: 13px; }
 .link-search-bar svg { width: 15px; }
-.link-search-web { display: flex; flex-wrap: wrap; gap: 6px; }
-.link-search-web .secondary-button { display: inline-flex; align-items: center; gap: 5px; min-height: 34px; padding: 0 11px; font-size: 12.5px; }
-.link-search-web .secondary-button svg { width: 14px; flex: none; }
-.link-search-web .secondary-button svg:last-child:not(:first-child) { width: 12px; opacity: .55; }
-.link-search-web .is-paste { margin-left: auto; border-color: #9fb4dc; color: #2d56a8; }
+.link-search-bar .primary-button svg:last-child:not(:first-child) { width: 12px; opacity: .7; }
+.link-search-paste { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 38px; border-color: #9fb4dc; color: #2d56a8; font-size: 13px; }
+.link-search-paste svg { width: 15px; }
 .link-search-help { margin: 0; color: #7a868f; font-size: 11.5px; line-height: 1.5; }
 .link-search-help b { color: #4f5c65; }
-.link-search-kinds { display: flex; align-items: center; gap: 4px; }
-.link-search-kinds button { min-height: 28px; padding: 0 11px; border: 1px solid transparent; border-radius: 999px; background: transparent; color: #5b6870; font-size: 12.5px; font-weight: 700; cursor: pointer; }
-.link-search-kinds button:hover { background: #eef2f5; }
-.link-search-kinds button.is-active { border-color: #9fb4dc; background: white; color: #2d56a8; }
-.link-search-by { margin-left: auto; color: #8c98a1; font-size: 11px; font-weight: 700; }
-.link-search-note { margin: 0; display: flex; align-items: center; gap: 7px; padding: 8px 2px; color: #66737c; font-size: 12.5px; line-height: 1.5; }
-.link-search-note svg { width: 14px; flex: none; }
-.link-search-note.is-error { color: #a4453b; }
-.link-search-note.is-setup { padding: 9px 11px; border: 1px solid #f0d49b; border-radius: 10px; background: #fdf6e6; color: #7a5a1c; }
-.link-search-results { max-height: 300px; margin: 0; padding: 0; overflow-y: auto; display: grid; gap: 6px; list-style: none; }
-.link-search-results li { display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: center; gap: 10px; padding: 9px 10px; border: 1px solid var(--border); border-radius: 10px; background: white; }
-.link-search-results li > div { min-width: 0; display: grid; gap: 2px; }
-.link-search-results a { display: inline-flex; align-items: center; gap: 4px; min-width: 0; overflow: hidden; color: #1f3f86; font-size: 13.5px; font-weight: 750; text-decoration: none; }
-.link-search-results a:hover { text-decoration: underline; }
-.link-search-results a svg { width: 12px; flex: none; opacity: .6; }
-.link-search-results small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #6f7c85; font-size: 11.5px; }
-.link-search-results p { margin: 0; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; color: #4f5c65; font-size: 12px; line-height: 1.45; }
-.link-search-results .secondary-button { display: inline-flex; align-items: center; gap: 4px; min-height: 32px; padding: 0 10px; font-size: 12.5px; }
-.link-search-results .secondary-button svg { width: 14px; }
 
 /* 보드 복사 창 */
 .copy-dialog .copy-body { display: grid; gap: 10px; padding: 4px 22px 2px; }
@@ -536,8 +515,6 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   .column-question.is-open p { max-height: 34vh; }
   .question-dialog .question-body { padding: 4px 18px 2px; }
   .copy-dialog .copy-body { padding: 4px 18px 2px; }
-  .link-search-results { max-height: 36vh; }
-  .link-search-web .is-paste { flex-basis: 100%; justify-content: center; margin-left: 0; }
   .link-input-row { flex-wrap: wrap; }
   .link-input-row input { flex-basis: 100%; }
   .copy-list { max-height: 30vh; }

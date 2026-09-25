@@ -111,3 +111,29 @@ export function naverKeyHint(status: number, errorMessage: unknown): string {
   if (status === 403) return "네이버가 이 키의 검색 사용을 막았습니다. 네이버 개발자센터 → 내 애플리케이션에서 '검색' API 와 서비스 상태를 확인해 주세요.";
   return "네이버가 키를 받아 주지 않았습니다. Client ID 와 Client Secret 이 서로 바뀌지 않았는지, 끝까지 복사했는지 확인하고 Redeploy 해 주세요.";
 }
+
+// 새 창에서 여는 일반 인터넷 검색. 키가 필요 없어 네이버 검색 API 가 막혀 있어도 늘 됩니다.
+export type WebSearchEngine = "google" | "naver";
+
+export const WEB_SEARCH_ENGINES: { value: WebSearchEngine; label: string }[] = [
+  { value: "google", label: "구글" },
+  { value: "naver", label: "네이버" },
+];
+
+export function webSearchUrl(engine: WebSearchEngine, query: string): string {
+  const text = encodeURIComponent(query.replace(/\s+/g, " ").trim());
+  return engine === "google" ? `https://www.google.com/search?q=${text}` : `https://search.naver.com/search.naver?query=${text}`;
+}
+
+// 복사해 온 글에서 첫 주소를 꺼냅니다. 휴대폰 앱의 "공유 → 복사" 는 "제목 https://…" 처럼 제목이 앞에 붙기도 합니다.
+export function extractUrl(text: string): string | null {
+  const match = text.match(/https?:\/\/[^\s<>"'`]+/i);
+  if (!match) return null;
+  const url = match[0].replace(/[),.;!?\]}>」』”’]+$/u, "");
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "http:" || parsed.protocol === "https:" ? parsed.toString() : null;
+  } catch {
+    return null;
+  }
+}

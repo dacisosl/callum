@@ -639,3 +639,89 @@ as $$
 $$;
 
 grant execute on function public.get_my_usage() to authenticated;
+
+-- 8. 주인의 보드 저장: 손님 카드를 잃지 않도록 서버 안에서 합칩니다.
+--    주인 화면은 보드 전체를 통째로 저장하는데, 주인이 보드를 열어 둔 사이 손님이 올린 카드는
+--    주인 화면에 없어서 그대로 덮어쓰면 사라집니다. 앱이 저장 전에 서버 것을 읽어 합치기는 하지만,
+--    읽고 쓰는 사이(수백 ms)에 올라온 카드는 여전히 잃을 수 있습니다. 이 함수는 행을 잠근 채로
+--    합치고 저장하므로 손님의 add_shared_card 와 서로 줄을 서서 어느 쪽도 잃지 않습니다.
+--    security invoker 라 RLS 가 그대로 적용되어 자기 보드만 저장할 수 있습니다.
+--    removed_card_ids 는 주인이 방금 지운 손님 카드라 되살리면 안 되는 것들입니다.
+create or replace function public.save_board(
+  board_id text,
+  board jsonb,
+  removed_card_ids text[] default '{}'
+)
+returns jsonb
+language plpgsql
+security invoker
+set search_path = public
+as $$
+declare
+  current_data jsonb;
+  merged jsonb;
+  mine_ids text[];
+  restored jsonb;
+begin
+  if board_id is null or board_id = '' or board is null or jsonb_typeof(board) <> 'object' then
+    raise exception '보드가 올바르지 않습니다.';
+  end if;
+  if board ->> 'id' is distinct from board_id then
+    raise exception '보드 ID가 맞지 않습니다.';
+  end if;
+
+  -- 같은 행을 고치는 손님 함수가 끝날 때까지 기다리고, 끝난 뒤에는 그쪽이 기다립니다.
+  perform 1 from public.boards b where b.id = board_id for update;
+  current_data := (select b.data from public.boards b where b.id = board_id);
+
+  merged := board;
+  if current_data is not null and jsonb_typeof(current_data -> 'columns') = 'array' then
+    mine_ids := array(
+      select card ->> 'id'
+      from jsonb_array_elements(coalesce(board -> 'columns', '[]'::jsonb)) col,
+           jsonb_array_elements(coalesce(col -> 'cards', '[]'::jsonb)) card
+    );
+    -- 내 화면에 없는 손님 카드를 칼럼마다 맨 앞에 되살립니다. 손님 함수도 항상 맨 앞에 붙입니다.
+    restored := (
+      select coalesce(jsonb_agg(
+        case when missing.cards is null then c.col
+             else jsonb_set(c.col, '{cards}', missing.cards || coalesce(c.col -> 'cards', '[]'::jsonb)) end
+        order by c.idx), '[]'::jsonb)
+      from jsonb_array_elements(coalesce(board -> 'columns', '[]'::jsonb)) with ordinality as c(col, idx)
+      left join lateral (
+        select jsonb_agg(r.card order by r.idx) as cards
+        from jsonb_array_elements(coalesce(current_data -> 'columns', '[]'::jsonb)) rc,
+             jsonb_array_elements(coalesce(rc -> 'cards', '[]'::jsonb)) with ordinality as r(card, idx)
+        where rc ->> 'id' = c.col ->> 'id'
+          and coalesce(r.card ->> 'guestAuthor', '') <> ''
+          and not (r.card ->> 'id' = any(mine_ids))
+          and not (r.card ->> 'id' = any(coalesce(removed_card_ids, '{}')))
+      ) missing on true
+    );
+    merged := jsonb_set(board, '{columns}', restored);
+  end if;
+
+  insert into public.boards (id, owner_id, title, data, share_enabled, share_token, created_at, updated_at)
+  values (
+    board_id,
+    auth.uid(),
+    coalesce(merged ->> 'title', ''),
+    merged,
+    coalesce((merged ->> 'shareEnabled')::boolean, false),
+    coalesce(merged ->> 'shareToken', ''),
+    coalesce((merged ->> 'createdAt')::bigint, (extract(epoch from now()) * 1000)::bigint),
+    coalesce((merged ->> 'updatedAt')::bigint, (extract(epoch from now()) * 1000)::bigint)
+  )
+  on conflict (id) do update set
+    owner_id = excluded.owner_id,
+    title = excluded.title,
+    data = excluded.data,
+    share_enabled = excluded.share_enabled,
+    share_token = excluded.share_token,
+    updated_at = excluded.updated_at;
+
+  return merged;
+end;
+$$;
+
+grant execute on function public.save_board(text, jsonb, text[]) to authenticated;

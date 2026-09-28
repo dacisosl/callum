@@ -120,9 +120,25 @@ async function withGuestCards(board: BoardData, removedCardIds?: Set<string>): P
   }
 }
 
-export async function saveBoard(board: BoardData, ownerId: string, removedCardIds?: Set<string>) {
+export async function saveBoard(board: BoardData, ownerId: string, removedCardIds?: Set<string>): Promise<BoardData> {
+  const stamped: BoardData = { ...board, ownerId, updatedAt: Date.now() };
+  // 서버 함수가 행을 잠근 채 손님 카드를 합쳐 저장합니다. 아래의 "읽고 합쳐서 덮어쓰기" 와 달리
+  // 읽는 사이에 올라온 손님 카드도 잃지 않습니다. 함수가 아직 없으면(주인이 최신 SQL 을 안 돌림)
+  // 예전 방식으로 저장합니다.
+  const { data, error } = await supabase().rpc("save_board", {
+    board_id: stamped.id,
+    board: stamped,
+    removed_card_ids: [...(removedCardIds ?? [])],
+  });
+  if (!error) return (data as BoardData | null) ?? stamped;
+  if (!isMissingFunction(error)) throw translate(error);
+  return saveBoardLegacy(stamped, ownerId, removedCardIds);
+}
+
+// save_board 함수가 없을 때의 예전 저장. 손님 카드를 먼저 읽어 합치고 통째로 덮어씁니다.
+async function saveBoardLegacy(board: BoardData, ownerId: string, removedCardIds?: Set<string>) {
   const merged = board.shareEnabled && board.guestPostEnabled ? await withGuestCards(board, removedCardIds) : board;
-  const payload: BoardData = { ...merged, ownerId, updatedAt: Date.now() };
+  const payload: BoardData = { ...merged, ownerId };
   const { error } = await supabase().from("boards").upsert({
     id: payload.id,
     owner_id: ownerId,
@@ -322,7 +338,7 @@ export async function checkGuestFunctions(): Promise<GuestFunctions> {
     const { error } = await supabase().rpc(name, args);
     return !isMissingFunction(error);
   }
-  const [post, edit, remove, upload] = await Promise.all([
+  const [post, edit, remove, upload, save] = await Promise.all([
     // 수정 열쇠를 받는 새 형태로 확인합니다. 옛 형태만 있으면 새 글에 열쇠가 저장되지 않아
     // 수정도 삭제도 성립하지 않습니다.
     exists("add_shared_card", { token: "", card_id: "", target_column: "", card_title: "", card_body: "", card_link: null, author: "", card_attachments: [], card_edit_key: "" }),
@@ -330,8 +346,10 @@ export async function checkGuestFunctions(): Promise<GuestFunctions> {
     exists("delete_shared_card", { token: "", card_id: "", edit_key: "" }),
     // 이 함수가 없으면 손님 업로드 정책도 옛 버전입니다. 둘이 같은 스크립트로 함께 들어갑니다.
     exists("board_accepts_guest_files", { board_id: "" }),
+    // 주인 저장을 서버에서 합치는 함수. 빈 ID 는 함수 안에서 거부되므로 아무것도 만들지 않습니다.
+    exists("save_board", { board_id: "", board: {}, removed_card_ids: [] }),
   ]);
-  return { post, edit, remove, upload };
+  return { post, edit, remove, upload, save };
 }
 
 export async function addSharedCard(

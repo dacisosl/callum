@@ -92,7 +92,7 @@ import { cloneStarterBoard } from "@/lib/demo-data";
 import { supabaseConfigured } from "@/lib/supabase-config";
 import { publicSiteOrigin, shareLink } from "@/lib/site-url";
 import { AUTO_SWEEP_AGE, MANUAL_SWEEP_AGE } from "@/lib/attachment-sweep";
-import { missingGuestFeatures, sqlChoiceFor, type GuestFunctions } from "@/lib/rpc-errors";
+import { missingGuestFeatures, sqlPartsFor, type GuestFunctions } from "@/lib/rpc-errors";
 import { attachmentWeight, planBoardCopy } from "@/lib/board-copy";
 import { extractUrl, looksLikeQuery, MAX_QUERY_LENGTH, webSearchUrl } from "@/lib/search-results";
 import {
@@ -1896,15 +1896,12 @@ export function BoardApp() {
 
   // 빠진 것을 메우는 SQL 을 클립보드에 넣습니다. 문자열은 누를 때만 불러옵니다.
   async function copyGuestSql() {
-    const choice = sqlChoiceFor(guestFunctions);
-    if (choice === "none") return;
+    const parts = sqlPartsFor(guestFunctions);
+    if (!parts.length) return;
     setCopyingSql(true);
     try {
       const sql = await import("@/lib/generated-sql");
-      const text = choice === "uploads" ? sql.GUEST_UPLOADS_SQL
-        : choice === "delete" ? sql.GUEST_CARD_DELETE_SQL
-        : choice === "cards" ? sql.GUEST_CARDS_SQL
-        : `${sql.GUEST_UPLOADS_SQL}\n\n${sql.GUEST_CARDS_SQL}`;
+      const text = parts.map((part) => ({ uploads: sql.GUEST_UPLOADS_SQL, cards: sql.GUEST_CARDS_SQL, delete: sql.GUEST_CARD_DELETE_SQL, save: sql.SAVE_BOARD_SQL })[part]).join("\n\n");
       await navigator.clipboard.writeText(text);
       toast.success("SQL을 복사했습니다. Supabase SQL Editor를 비우고 붙여 넣은 뒤 Run 하세요.");
     } catch {
@@ -2202,7 +2199,7 @@ export function BoardApp() {
       <Dialog open={shareOpen} onOpenChange={setShareOpen}>
         <DialogContent className="share-dialog"><DialogHeader><DialogTitle>보드 공유</DialogTitle><DialogDescription>링크를 가진 사람은 이 보드를 읽을 수 있습니다.</DialogDescription></DialogHeader><div className="share-switch-row"><div><strong>읽기 전용 링크</strong><span>{activeBoard.shareEnabled ? "공유 중" : "비공개"}</span></div><Switch checked={activeBoard.shareEnabled} onCheckedChange={setSharing} aria-label="읽기 전용 공유" /></div><div className="share-switch-row"><div><strong>공유받은 사람의 글쓰기</strong><span>{activeBoard.guestPostEnabled ? "링크를 가진 사람도 카드를 올릴 수 있습니다" : "꺼짐 · 읽기만 할 수 있습니다"}</span></div><Switch checked={Boolean(activeBoard.guestPostEnabled)} onCheckedChange={(enabled) => { updateActiveBoard((board) => ({ ...board, guestPostEnabled: enabled })); toast.success(enabled ? "공유받은 사람도 카드를 올릴 수 있습니다." : "공유받은 사람의 글쓰기를 껐습니다."); }} aria-label="공유받은 사람의 글쓰기 허용" /></div>{guestFunctions && (missingFeatures.length
           ? <div className="share-warning"><p>데이터베이스에 아직 없는 기능: <b>{missingFeatures.join(", ")}</b>. 아래 버튼으로 SQL을 복사한 뒤, Supabase SQL Editor를 <b>비우고</b> 붙여 넣어 Run 하세요.</p><button type="button" className="text-button" onClick={() => void copyGuestSql()} disabled={copyingSql}><Copy aria-hidden="true" />SQL 복사</button></div>
-          : <p className="share-ready">손님의 글쓰기·수정·삭제·파일 업로드가 모두 준비되었습니다.</p>)}<div className="share-switch-row"><div><strong>댓글</strong><span>{commentsEnabled ? "카드마다 댓글을 남길 수 있습니다" : "꺼짐 · 카드 뷰어에 댓글란이 보이지 않습니다"}</span></div><Switch checked={commentsEnabled} onCheckedChange={setCommentsEnabled} aria-label="댓글 허용" /></div>{activeBoard.shareEnabled && <><div className="share-url"><input readOnly value={shareUrl} /><button onClick={() => { void navigator.clipboard.writeText(shareUrl); toast.success("공유 링크를 복사했습니다."); }}><Copy />복사</button></div><button className="text-button" onClick={regenerateShareLink}><RotateCcw />기존 링크를 끊고 새 링크 만들기</button>{!supabaseConfigured && <p className="share-warning">로컬 데모 링크는 이 브라우저에서만 확인할 수 있습니다.</p>}</>}</DialogContent>
+          : <p className="share-ready">손님의 글쓰기·수정·삭제·파일 업로드와 동시 저장 보호가 모두 준비되었습니다.</p>)}<div className="share-switch-row"><div><strong>댓글</strong><span>{commentsEnabled ? "카드마다 댓글을 남길 수 있습니다" : "꺼짐 · 카드 뷰어에 댓글란이 보이지 않습니다"}</span></div><Switch checked={commentsEnabled} onCheckedChange={setCommentsEnabled} aria-label="댓글 허용" /></div>{activeBoard.shareEnabled && <><div className="share-url"><input readOnly value={shareUrl} /><button onClick={() => { void navigator.clipboard.writeText(shareUrl); toast.success("공유 링크를 복사했습니다."); }}><Copy />복사</button></div><button className="text-button" onClick={regenerateShareLink}><RotateCcw />기존 링크를 끊고 새 링크 만들기</button>{!supabaseConfigured && <p className="share-warning">로컬 데모 링크는 이 브라우저에서만 확인할 수 있습니다.</p>}</>}</DialogContent>
       </Dialog>
 
       <AlertDialog open={Boolean(deleteTarget)} onOpenChange={(open) => !open && setDeleteTarget(null)}>

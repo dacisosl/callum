@@ -19,6 +19,8 @@ export interface GuestFunctions {
   edit: boolean;
   remove: boolean;
   upload: boolean;
+  // 주인 저장을 서버에서 합치는 save_board. 없으면 손님이 몰릴 때 카드를 잃을 수 있습니다.
+  save: boolean;
 }
 
 // 화면에 보여 줄 "빠진 기능" 이름들. 갖춰졌으면 빈 배열입니다.
@@ -29,20 +31,21 @@ export function missingGuestFeatures(found: GuestFunctions | null): string[] {
     !found.edit && "글 수정",
     !found.remove && "글 삭제",
     !found.upload && "파일 업로드",
+    !found.save && "동시 저장 보호",
   ].filter((item): item is string => Boolean(item));
 }
 
-// 빠진 것을 메우는 데 필요한 최소한의 SQL 이 무엇인지. 실제 내용은 lib/generated-sql.ts 에 있고,
-// 여기서는 어느 것을 쓸지만 고릅니다.
-export type SqlChoice = "none" | "uploads" | "cards" | "delete" | "uploads+cards";
+// 빠진 것을 메우는 데 필요한 SQL 조각들. 실제 내용은 lib/generated-sql.ts 에 있고, 여기서는
+// 어느 것들을 이 순서로 이어 붙일지만 고릅니다. 갖춰졌으면 빈 배열입니다.
+export type SqlPart = "uploads" | "cards" | "delete" | "save";
 
-export function sqlChoiceFor(found: GuestFunctions | null): SqlChoice {
-  if (!found) return "none";
-  const cardsMissing = !found.post || !found.edit || !found.remove;
-  if (!found.upload && cardsMissing) return "uploads+cards";
-  if (!found.upload) return "uploads";
-  if (!cardsMissing) return "none";
+export function sqlPartsFor(found: GuestFunctions | null): SqlPart[] {
+  if (!found) return [];
+  const parts: SqlPart[] = [];
+  if (!found.upload) parts.push("uploads");
   // 삭제만 빠진 경우가 가장 흔하고, 그때는 제일 짧은 스크립트면 충분합니다.
-  if (found.post && found.edit) return "delete";
-  return "cards";
+  if (!found.post || !found.edit) parts.push("cards");
+  else if (!found.remove) parts.push("delete");
+  if (!found.save) parts.push("save");
+  return parts;
 }

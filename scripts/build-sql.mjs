@@ -77,10 +77,27 @@ ${section("create or replace function public.guest_edit_hash", "$$;")}
 ${section("create or replace function public.delete_shared_card", "grant execute on function public.delete_shared_card")}
 ${CHECK_FUNCTIONS}`;
 
+const save = `-- 주인이 저장할 때 손님 카드를 잃지 않도록 서버 안에서 합치는 함수만 담은 스크립트입니다.
+-- Supabase 대시보드 > SQL Editor 에 통째로 붙여 넣고 Run 하세요. 여러 번 실행해도 안전합니다.
+-- schema.sql 전체를 실행해도 같은 내용이 들어갑니다.
+--
+-- 왜 필요한가: 주인 화면은 보드를 통째로 저장합니다. 여러 사람이 동시에 글을 올리는 동안 주인이
+-- 카드를 옮기거나 고치면, 저장하는 짧은 순간에 올라온 손님 글이 덮여 사라질 수 있습니다.
+-- 이 함수는 행을 잠근 채 합쳐 저장해 그 틈을 없앱니다. 실행하지 않아도 앱은 예전 방식으로 저장됩니다.
+
+${section("create or replace function public.save_board", "grant execute on function public.save_board")}
+
+-- 확인용. save_board 가 보이면 정상입니다.
+select p.proname as 함수, pg_get_function_identity_arguments(p.oid) as 인자
+from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+where n.nspname = 'public' and p.proname = 'save_board';
+`;
+
 const files = {
   "supabase/fix-guest-uploads.sql": uploads,
   "supabase/guest-cards.sql": cards,
   "supabase/guest-card-delete.sql": deleteOnly,
+  "supabase/save-board.sql": save,
 };
 
 for (const [path, body] of Object.entries(files)) {
@@ -97,6 +114,8 @@ export const GUEST_UPLOADS_SQL = ${quote(uploads)};
 export const GUEST_CARDS_SQL = ${quote(cards)};
 
 export const GUEST_CARD_DELETE_SQL = ${quote(deleteOnly)};
+
+export const SAVE_BOARD_SQL = ${quote(save)};
 `;
 
 mkdirSync(join(root, "lib"), { recursive: true });

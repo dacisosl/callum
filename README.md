@@ -130,7 +130,7 @@ Vercel은 배포마다 `callum-xxxxxxxx-....vercel.app` 같은 **배포 전용 �
 손님 기능(글쓰기·수정·삭제)은 데이터베이스 함수에 기대므로, 새 기능이 배포돼도 SQL을 실행하기 전에는
 동작하지 않습니다. 보드 주인이 **공유 설정 창**을 열면 무엇이 빠졌는지 한 줄로 알려 줍니다.
 
-- 모두 갖춰졌으면 `손님의 글쓰기·수정·삭제가 모두 준비되었습니다.`
+- 모두 갖춰졌으면 `손님의 글쓰기·수정·삭제·파일 업로드와 동시 저장 보호가 모두 준비되었습니다.`
 - 빠진 게 있으면 무엇이 없는지와 실행할 파일 이름을 알려 줍니다
 
 확인은 각 함수를 빈 토큰으로 한 번씩 불러 보고 "함수 없음"(`PGRST202`) 오류인지만 보는 방식입니다.
@@ -150,6 +150,7 @@ Vercel은 배포마다 `callum-xxxxxxxx-....vercel.app` 같은 **배포 전용 �
 | 삭제만 안 됨 | `supabase/guest-card-delete.sql` |
 | 손님이 파일을 못 올림 | `supabase/fix-guest-uploads.sql` |
 | 수정·삭제가 안 됨 | `supabase/guest-cards.sql` |
+| "동시 저장 보호" 가 빠졌다고 뜸 | `supabase/save-board.sql` |
 | 처음부터 설치하거나 전부 맞추고 싶을 때 | `supabase/schema.sql` |
 
 ### SQL 파일은 생성물입니다
@@ -161,7 +162,31 @@ Vercel은 배포마다 `callum-xxxxxxxx-....vercel.app` 같은 **배포 전용 �
 - 고칠 내용은 `supabase/schema.sql` 에 반영하고 `npm run sql` 을 돌립니다
 - `npm run build` 앞에서도 자동으로 돌아, 배포에 낡은 내용이 실릴 수 없습니다
 - `supabase/fix-guest-uploads.sql`, `supabase/guest-cards.sql`, `supabase/guest-card-delete.sql`,
-  `lib/generated-sql.ts` 는 모두 생성물이니 직접 고치지 마세요
+  `supabase/save-board.sql`, `lib/generated-sql.ts` 는 모두 생성물이니 직접 고치지 마세요
+
+### 여러 사람이 동시에 올릴 때 카드를 잃지 않기 (`save_board`)
+
+주인 화면은 보드를 통째로 저장합니다. 손님이 올린 카드는 주인 화면에 아직 없을 수 있어, 그대로
+덮어쓰면 사라집니다. 앱은 저장 전에 서버 것을 읽어 합치지만, 읽고 쓰는 사이(수백 ms)에 올라온
+카드는 여전히 잃을 수 있었습니다. 20~30명이 한꺼번에 올리는 동안 주인이 카드를 옮기면 실제로
+생기는 일입니다.
+
+`supabase/save-board.sql` 의 `save_board` 함수는 행을 잠근 채 손님 카드를 합쳐 저장합니다. 손님의
+`add_shared_card` 와 서로 줄을 서므로 어느 쪽이 먼저 오든 둘 다 남습니다. 앱은 이 함수가 있으면
+그것으로 저장하고, 없으면(SQL 을 아직 안 돌림) 예전 방식으로 저장합니다. 공유 설정 창에
+"동시 저장 보호" 가 빠졌다고 뜨면 **SQL 복사** 로 넣으세요.
+
+### Supabase 가 잠들지 않게 하기
+
+Supabase 무료 프로젝트는 일주일 동안 요청이 없으면 일시정지되어, 연수 당일 로그인도 공유 링크도
+열리지 않습니다. `vercel.json` 의 cron 이 매일 한 번(UTC 21시, 한국 아침 6시) `/api/keepalive` 를
+불러 데이터베이스에 가벼운 질의를 보내므로 잠들지 않습니다. 따로 설정할 것은 없습니다.
+
+- 손으로 확인하려면 `https://callum-eight.vercel.app/api/keepalive` 를 열어 `"ok":true` 가 나오는지 봅니다
+- Vercel 대시보드 → 프로젝트 → **Settings → Cron Jobs** 에서 실행 기록이 보입니다
+- 무료(Hobby) 플랜은 하루 한 번까지만 허용되어 그렇게 맞췄습니다. 5일에 한 번보다 촘촘하니 충분합니다
+- Vercel 환경변수에 `CRON_SECRET` 을 두면 그 값을 아는 호출만 받습니다. 없어도 동작하며, 이 경로는
+  아무것도 바꾸지 않아 열려 있어도 해가 없습니다
 
 ### 손님이 이미지·PDF를 못 올릴 때
 

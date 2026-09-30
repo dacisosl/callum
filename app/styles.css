@@ -689,6 +689,8 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .side-logout { display: flex; align-items: center; gap: 8px; min-height: 36px; padding: 0 10px; border: 0; border-radius: 11px; background: transparent; color: #5a6871; font-size: 13px; font-weight: 650; cursor: pointer; }
 .side-logout:hover { background: rgba(255,255,255,.9); color: #25333c; }
 .side-logout svg { width: 15px; }
+.side-version { padding: 0 10px; color: #a3aeb5; font-size: 10.5px; font-variant-numeric: tabular-nums; }
+.is-collapsed .side-version { display: none; }
 
 /* 사이드바의 무료 사용량: 접으면 링 둘, 펼치면 숫자와 정리 */
 .side-usage { border: 1px solid rgba(20,30,38,.08); border-radius: 14px; background: white; }

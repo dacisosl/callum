@@ -49,6 +49,7 @@ import { publicSiteOrigin, shareLink } from "@/lib/site-url";
 const EMPTY_FOLDERS_KEY = "pillar-folders-v1";
 // 사이드바를 접어 둔 것도 이 브라우저에만 기억합니다.
 const SIDEBAR_KEY = "pillar-sidebar-v1";
+const BUILD_ID = (process.env.NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA ?? "").slice(0, 7);
 
 function readEmptyFolders(): string[] {
   try {
@@ -349,6 +350,8 @@ export function BoardHome({ boards, demo, showLogout, usage, usageLoading, onRef
         <div className="side-bottom">
           <UsageMini usage={usage} loading={usageLoading} demo={demo} onRefresh={onRefreshUsage} onSweep={onSweep} compact={collapsed} onExpandSidebar={toggleSidebar} />
           {showLogout && <button type="button" className="side-logout" onClick={onLogout} title="로그아웃"><LogOut aria-hidden="true" /><span>로그아웃</span></button>}
+          {/* 지금 보고 있는 배포가 최신인지 확인하는 표시. Vercel 이 커밋 번호를 넣어 줍니다. */}
+          {BUILD_ID && <span className="side-version" title={`배포 ${BUILD_ID}`}>v.{BUILD_ID}</span>}
         </div>
       </aside>
 

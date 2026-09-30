@@ -116,6 +116,10 @@ export interface BoardData {
   commentsEnabled?: boolean;
   // 공유 링크로 들어온 사람이 이 보드에 카드를 올릴 수 있는지. 보드마다 따로 켭니다.
   guestPostEnabled?: boolean;
+  // 홈 화면에서 보드를 구분하는 색조(COLUMN_HUES 의 값). 없으면 색 없이 보여 줍니다.
+  hue?: number;
+  // 홈 화면의 폴더 이름. 비어 있으면 어느 폴더에도 들어 있지 않습니다. lib/board-folders.ts 참고.
+  folder?: string;
   createdAt: number;
   updatedAt: number;
 }

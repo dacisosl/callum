@@ -954,7 +954,8 @@ export function BoardApp() {
   const [activeBoardId, setActiveBoardId] = useState("starter-board");
   const [queryText, setQueryText] = useState("");
   const [saveStatus, setSaveStatus] = useState<"saved" | "saving" | "error">("saved");
-  const [dirtyBoardId, setDirtyBoardId] = useState<string | null>(null);
+  // 아직 저장하지 않은 보드들. 폴더 이름을 바꾸면 여러 보드가 한꺼번에 바뀌므로 하나가 아니라 집합입니다.
+  const [dirtyBoardIds, setDirtyBoardIds] = useState<Set<string>>(() => new Set());
   const [editorOpen, setEditorOpen] = useState(false);
   const [draft, setDraft] = useState<CardDraft | null>(null);
   const [linkInput, setLinkInput] = useState("");
@@ -1059,7 +1060,7 @@ export function BoardApp() {
   }, [view, readOnly, loading, refreshUsage]);
 
   // 변경 표시와 저장 상태를 한 곳에서 바꿉니다. 저장 effect는 이 값만 보고 동작합니다.
-  const markDirty = useCallback((boardId: string) => { setDirtyBoardId(boardId); setSaveStatus("saving"); }, []);
+  const markDirty = useCallback((boardId: string) => { setDirtyBoardIds((current) => current.has(boardId) ? current : new Set(current).add(boardId)); setSaveStatus("saving"); }, []);
 
   useEffect(() => { boardsRef.current = boards; }, [boards]);
   useEffect(() => {
@@ -1186,28 +1187,33 @@ export function BoardApp() {
   }, [readOnly]);
 
   useEffect(() => {
-    if (!dirtyBoardId || readOnly) return;
-    const board = boards.find((item) => item.id === dirtyBoardId);
-    if (!board) return;
+    if (!dirtyBoardIds.size || readOnly) return;
+    const pending = boards.filter((item) => dirtyBoardIds.has(item.id));
     const timer = window.setTimeout(async () => {
+      // 더럽다고 적힌 보드가 이미 지워졌으면 저장할 것이 없습니다.
+      if (!pending.length) { setDirtyBoardIds(new Set()); setSaveStatus("saved"); return; }
       try {
         if (supabaseConfigured && user) {
-          const saved = await (await import("@/lib/supabase-client")).saveBoard(board, user.uid, removedCardIds.current);
-          // 저장하면서 내 화면에 없던 손님 카드를 되살렸으면 화면에도 반영합니다.
-          if (saved.columns !== board.columns) setBoards((current) => current.map((item) => item.id === saved.id ? saved : item));
+          const backend = await import("@/lib/supabase-client");
+          for (const board of pending) {
+            const saved = await backend.saveBoard(board, user.uid, removedCardIds.current);
+            // 저장하면서 내 화면에 없던 손님 카드를 되살렸으면 화면에도 반영합니다.
+            if (saved.columns !== board.columns) setBoards((current) => current.map((item) => item.id === saved.id ? saved : item));
+          }
           // 같은 보드를 보고 있는 사람들에게 바뀐 것을 알립니다.
           boardChannel.current?.notify();
         }
         else localStorage.setItem(LOCAL_KEY, JSON.stringify(boards));
         setSaveStatus("saved");
-        setDirtyBoardId(null);
+        // 저장하는 동안 다시 더러워진 보드는 남겨 두어 다음 차례에 저장합니다.
+        setDirtyBoardIds((current) => { const next = new Set(current); for (const board of pending) if (boards.find((item) => item.id === board.id) === board) next.delete(board.id); return next; });
       } catch {
         setSaveStatus("error");
         toast.error("저장하지 못했습니다. 변경 내용은 화면에 유지됩니다.");
       }
     }, 650);
     return () => window.clearTimeout(timer);
-  }, [boards, dirtyBoardId, readOnly, user]);
+  }, [boards, dirtyBoardIds, readOnly, user]);
 
   const updateBoard = useCallback((boardId: string, updater: (board: BoardData) => BoardData) => {
     setBoards((current) => current.map((board) => board.id === boardId ? { ...updater(board), updatedAt: Date.now() } : board));
@@ -1238,7 +1244,7 @@ export function BoardApp() {
     liveRef.current.boardId = activeBoard?.id ?? "";
     liveRef.current.token = sharedToken;
     liveRef.current.editing = editorOpen;
-    liveRef.current.dirty = Boolean(dirtyBoardId);
+    liveRef.current.dirty = dirtyBoardIds.size > 0;
     liveRef.current.dragging = Boolean(dragCardId);
     liveRef.current.comments = commentsEnabled;
   });
@@ -1842,9 +1848,9 @@ export function BoardApp() {
     toast.success(`${title}을(를) 만들었습니다. 칼럼 ${copy.columns.length}개${includeCards ? `, 카드 ${cards}개` : ""}.${note}`);
   }
 
-  function createBoard() {
+  function createBoard(folder?: string) {
     const now = Date.now();
-    const board: BoardData = { id: makeId("board"), title: "새 보드", shareEnabled: false, shareToken: "", createdAt: now, updatedAt: now, columns: [{ id: makeId("column"), title: "첫 번째 칼럼", collapsed: false, cards: [] }] };
+    const board: BoardData = { id: makeId("board"), title: "새 보드", shareEnabled: false, shareToken: "", ...(folder ? { folder } : {}), createdAt: now, updatedAt: now, columns: [{ id: makeId("column"), title: "첫 번째 칼럼", collapsed: false, cards: [] }] };
     setBoards((current) => [board, ...current]); setActiveBoardId(board.id); markDirty(board.id); setView("board");
   }
 
@@ -1964,7 +1970,16 @@ export function BoardApp() {
           demo={!supabaseConfigured}
           showLogout={supabaseConfigured}
           onOpen={(boardId) => { setActiveBoardId(boardId); setView("board"); }}
-          onCreate={createBoard}
+          onCreate={(folder) => createBoard(folder)}
+          onRecolor={(board, hue) => updateBoard(board.id, (item) => hue === undefined ? (({ hue: _dropped, ...rest }) => { void _dropped; return rest; })(item) : { ...item, hue })}
+          onMoveToFolder={(board, folder) => {
+            updateBoard(board.id, (item) => folder ? { ...item, folder } : (({ folder: _dropped, ...rest }) => { void _dropped; return rest; })(item));
+            toast.success(folder ? `${board.title}을(를) "${folder}" 폴더로 옮겼습니다.` : `${board.title}을(를) 폴더에서 꺼냈습니다.`);
+          }}
+          onRenameFolder={(from, to) => {
+            // 폴더는 보드에 적힌 이름이므로 그 폴더의 보드를 모두 고칩니다. 저장은 보드마다 차례로 됩니다.
+            for (const board of boards) if ((board.folder ?? "") === from) updateBoard(board.id, (item) => to ? { ...item, folder: to } : (({ folder: _dropped, ...rest }) => { void _dropped; return rest; })(item));
+          }}
           onRename={(board) => { const title = window.prompt("새 보드 이름", board.title)?.trim(); if (title) updateBoard(board.id, (item) => ({ ...item, title })); }}
           onDelete={(board) => setDeleteTarget({ kind: "board", id: board.id, title: board.title })}
           usage={usage}
@@ -1989,7 +2004,7 @@ export function BoardApp() {
               <DropdownMenuSeparator />
               {boards.map((board) => <DropdownMenuItem key={board.id} onClick={() => setActiveBoardId(board.id)}>{board.title}{board.id === activeBoard.id && <span className="current-mark">현재</span>}</DropdownMenuItem>)}
               <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={createBoard}><Plus />새 보드</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => createBoard(activeBoard.folder)}><Plus />새 보드</DropdownMenuItem>
               <DropdownMenuItem onClick={() => { const title = window.prompt("새 보드 이름", activeBoard.title)?.trim(); if (title) updateActiveBoard((board) => ({ ...board, title })); }}><Pencil />이름 변경</DropdownMenuItem>
               <DropdownMenuItem onClick={() => setCommentsEnabled(!commentsEnabled)}><MessageCircle />{commentsEnabled ? "댓글 끄기" : "댓글 켜기"}</DropdownMenuItem>
               <DropdownMenuItem variant="destructive" onClick={() => setDeleteTarget({ kind: "board", id: activeBoard.id, title: activeBoard.title })}><Trash2 />보드 삭제</DropdownMenuItem>

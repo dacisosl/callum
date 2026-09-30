@@ -120,6 +120,8 @@ export interface BoardData {
   hue?: number;
   // 홈 화면의 폴더 이름. 비어 있으면 어느 폴더에도 들어 있지 않습니다. lib/board-folders.ts 참고.
   folder?: string;
+  // 홈 화면에서의 순서(작은 것부터). 끌어서 옮기면 적힙니다. lib/board-order.ts 참고.
+  position?: number;
   createdAt: number;
   updatedAt: number;
 }

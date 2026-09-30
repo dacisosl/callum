@@ -1,5 +1,8 @@
 "use client";
 
+import { closestCenter, DndContext, KeyboardSensor, MouseSensor, TouchSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
+import { rectSortingStrategy, SortableContext, sortableKeyboardCoordinates, useSortable } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import {
   AlertTriangle,
   ChevronDown,
@@ -17,6 +20,8 @@ import {
   MessageCircle,
   MoreHorizontal,
   Palette,
+  PanelLeftClose,
+  PanelLeftOpen,
   Pencil,
   Plus,
   RefreshCw,
@@ -25,7 +30,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { useEffect, useState, type CSSProperties } from "react";
+import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import { toast } from "sonner";
 import {
   DropdownMenu,
@@ -36,11 +41,14 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { COLUMN_HUES, FREE_DB_LIMIT, FREE_STORAGE_LIMIT, type BoardData, type UsageSnapshot } from "@/lib/board-types";
 import { boardFolder, boardsInFolder, folderNames, MAX_FOLDER_NAME, normalizeFolderName, pruneEmptyFolders } from "@/lib/board-folders";
+import { reorderBoards, sortBoards, type PositionUpdate } from "@/lib/board-order";
 import { supabaseConfig } from "@/lib/supabase-config";
 import { publicSiteOrigin, shareLink } from "@/lib/site-url";
 
 // 아직 보드가 하나도 없는 폴더는 이 브라우저에만 기억합니다. 보드가 들어가면 보드에 적힌 이름이 원본이 됩니다.
 const EMPTY_FOLDERS_KEY = "pillar-folders-v1";
+// 사이드바를 접어 둔 것도 이 브라우저에만 기억합니다.
+const SIDEBAR_KEY = "pillar-sidebar-v1";
 
 function readEmptyFolders(): string[] {
   try {
@@ -108,7 +116,7 @@ function MiniRing({ name, used, limit }: { name: string; used: number; limit: nu
 }
 
 // 사이드바 아래의 무료 사용량. 접혀 있을 때는 링 둘뿐이고, 펼치면 숫자와 정리 버튼이 나옵니다.
-function UsageMini({ usage, loading, demo, onRefresh, onSweep }: { usage: UsageSnapshot | null; loading: boolean; demo: boolean; onRefresh: () => void; onSweep: () => Promise<void> }) {
+function UsageMini({ usage, loading, demo, onRefresh, onSweep, compact, onExpandSidebar }: { usage: UsageSnapshot | null; loading: boolean; demo: boolean; onRefresh: () => void; onSweep: () => Promise<void>; compact: boolean; onExpandSidebar: () => void }) {
   const [open, setOpen] = useState(false);
   const [sweeping, setSweeping] = useState(false);
   async function sweep() {
@@ -125,7 +133,7 @@ function UsageMini({ usage, loading, demo, onRefresh, onSweep }: { usage: UsageS
   const warnings = meters.map((meter) => ({ ...meter, ...usageOf(meter.used, meter.limit) })).filter((meter) => meter.severity !== "ok");
   return (
     <section className={`side-usage${open ? " is-open" : ""}`} aria-label="무료 사용량">
-      <button type="button" className="side-usage-toggle" onClick={() => setOpen((value) => !value)} aria-expanded={open}>
+      <button type="button" className="side-usage-toggle" onClick={() => { if (compact) { onExpandSidebar(); setOpen(true); } else setOpen((value) => !value); }} aria-expanded={open && !compact} title="무료 사용량">
         <span className="side-usage-rings">
           {usage
             ? meters.map((meter) => <MiniRing key={meter.name} name={meter.name} used={meter.used} limit={meter.limit} />)
@@ -133,10 +141,10 @@ function UsageMini({ usage, loading, demo, onRefresh, onSweep }: { usage: UsageS
         </span>
         <span className="side-usage-caption"><span>무료 사용량</span>{open ? <ChevronDown aria-hidden="true" /> : <ChevronUp aria-hidden="true" />}</span>
       </button>
-      {warnings.length > 0 && !open && (
+      {warnings.length > 0 && !open && !compact && (
         <p className="side-usage-warn"><AlertTriangle aria-hidden="true" />{warnings.map((meter) => meter.name).join("·")} {warnings.some((meter) => meter.severity === "critical") ? "거의 찼습니다" : "70%를 넘었습니다"}</p>
       )}
-      {open && (
+      {open && !compact && (
         <div className="side-usage-detail">
           {usage ? (
             <>
@@ -172,7 +180,17 @@ function UsageMini({ usage, loading, demo, onRefresh, onSweep }: { usage: UsageS
   );
 }
 
-export function BoardHome({ boards, demo, showLogout, usage, usageLoading, onRefreshUsage, onSweep, onOpen, onCreate, onRename, onCopy, onDelete, onLogout, onToggleShare, onRecolor, onMoveToFolder, onRenameFolder }: {
+// 끌어서 옮길 수 있는 보드 카드 한 장. 8px 이상 끌어야 옮기기가 시작되어 눌러서 여는 것과 겹치지 않습니다.
+function SortableBoardCard({ id, className, style, children }: { id: string; className: string; style?: CSSProperties; children: ReactNode }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
+  return (
+    <article ref={setNodeRef} className={`${className}${isDragging ? " is-dragging" : ""}`} style={{ ...style, transform: CSS.Transform.toString(transform), transition }} {...attributes} {...listeners}>
+      {children}
+    </article>
+  );
+}
+
+export function BoardHome({ boards, demo, showLogout, usage, usageLoading, onRefreshUsage, onSweep, onOpen, onCreate, onRename, onCopy, onDelete, onLogout, onToggleShare, onRecolor, onMoveToFolder, onRenameFolder, onReorder }: {
   boards: BoardData[];
   demo: boolean;
   showLogout: boolean;
@@ -191,11 +209,20 @@ export function BoardHome({ boards, demo, showLogout, usage, usageLoading, onRef
   onMoveToFolder: (board: BoardData, folder: string | undefined) => void;
   // to 가 빈 문자열이면 폴더를 없애고 그 안의 보드를 폴더 밖으로 꺼냅니다.
   onRenameFolder: (from: string, to: string) => void;
+  onReorder: (updates: PositionUpdate[]) => void;
 }) {
   const [queryText, setQueryText] = useState("");
   // 공유 목록은 접힌 채로 시작합니다. 링크가 필요할 때만 펼칩니다.
   const [listOpen, setListOpen] = useState(false);
   const [activeFolder, setActiveFolder] = useState<string | null>(null);
+  const [collapsed, setCollapsed] = useState(false);
+  const sensors = useSensors(
+    // PointerSensor 하나로 하면 휴대폰에서 손가락이 닿자마자 그것이 먼저 잡고 화면 넘기기에 밀려 취소됩니다.
+    // 그래서 마우스와 터치를 따로 둡니다. 휴대폰에서는 잠시 눌러야 옮기기가 시작되어 화면 넘기기와 겹치지 않습니다.
+    useSensor(MouseSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 220, tolerance: 8 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
   const [emptyFolders, setEmptyFolders] = useState<string[]>([]);
   // 주소는 브라우저에서만 읽을 수 있어 첫 렌더 뒤에 채웁니다. 그전에는 링크 칸이 비어 있습니다.
   const [origin, setOrigin] = useState("");
@@ -205,12 +232,29 @@ export function BoardHome({ boards, demo, showLogout, usage, usageLoading, onRef
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setOrigin(publicSiteOrigin());
     setEmptyFolders(readEmptyFolders());
+    try { setCollapsed(localStorage.getItem(SIDEBAR_KEY) === "collapsed"); } catch { /* 기본은 펼침 */ }
   }, []);
 
+  function toggleSidebar() {
+    setCollapsed((value) => {
+      try { localStorage.setItem(SIDEBAR_KEY, value ? "open" : "collapsed"); } catch { /* 기억 못 해도 동작합니다. */ }
+      return !value;
+    });
+  }
+
+  // 끌어다 놓으면 전체 순서 안에서 옮기고 바뀐 자리만 저장합니다. 화면은 저장된 position 으로 바로 다시 정렬됩니다.
+  function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const { updates } = reorderBoards(boards, String(active.id), String(over.id));
+    if (updates.length) onReorder(updates);
+  }
+
+  const ordered = sortBoards(boards);
   const folders = folderNames(boards, emptyFolders);
   // 보고 있던 폴더가 사라지면 전체로 돌아갑니다.
   const currentFolder = activeFolder !== null && folders.includes(activeFolder) ? activeFolder : null;
-  const scoped = boardsInFolder(boards, currentFolder);
+  const scoped = boardsInFolder(ordered, currentFolder);
   const needle = queryText.trim().toLowerCase();
   const visible = scoped.filter((board) => !needle || board.title.toLowerCase().includes(needle));
   const sharedBoards = boards.filter((board) => board.shareEnabled && board.shareToken);
@@ -270,22 +314,23 @@ export function BoardHome({ boards, demo, showLogout, usage, usageLoading, onRef
   const heading = currentFolder ?? "모든 보드";
 
   return (
-    <div className="home-layout">
+    <div className={`home-layout${collapsed ? " is-collapsed" : ""}`}>
       <aside className="home-sidebar" aria-label="보드 탐색">
         <div className="side-brand">
           <span className="brand-mark" aria-hidden="true">P</span>
           <strong>Padlet-Lite</strong>
+          <button type="button" className="side-toggle" onClick={toggleSidebar} aria-label={collapsed ? "사이드바 펼치기" : "사이드바 접기"} title={collapsed ? "사이드바 펼치기" : "사이드바 접기"} aria-expanded={!collapsed}>{collapsed ? <PanelLeftOpen aria-hidden="true" /> : <PanelLeftClose aria-hidden="true" />}</button>
         </div>
 
         <nav className="side-nav" aria-label="폴더">
-          <button type="button" className={`side-item${currentFolder === null ? " is-active" : ""}`} onClick={() => setActiveFolder(null)} aria-current={currentFolder === null ? "page" : undefined}>
+          <button type="button" className={`side-item${currentFolder === null ? " is-active" : ""}`} onClick={() => setActiveFolder(null)} aria-current={currentFolder === null ? "page" : undefined} title="모든 보드">
             <LayoutGrid aria-hidden="true" /><span>모든 보드</span><em>{boards.length}</em>
           </button>
           <div className="side-section"><span>폴더</span><button type="button" onClick={createFolder} aria-label="새 폴더" title="새 폴더"><FolderPlus aria-hidden="true" /></button></div>
           {folders.length === 0 && <p className="side-empty">폴더가 없습니다. 위의 <FolderPlus aria-hidden="true" /> 로 만드세요.</p>}
           {folders.map((folder) => (
             <div key={folder} className={`side-folder${currentFolder === folder ? " is-active" : ""}`}>
-              <button type="button" className="side-item" onClick={() => setActiveFolder(folder)} aria-current={currentFolder === folder ? "page" : undefined}>
+              <button type="button" className="side-item" onClick={() => setActiveFolder(folder)} aria-current={currentFolder === folder ? "page" : undefined} title={folder}>
                 <Folder aria-hidden="true" /><span>{folder}</span><em>{countIn(folder)}</em>
               </button>
               <DropdownMenu>
@@ -302,8 +347,8 @@ export function BoardHome({ boards, demo, showLogout, usage, usageLoading, onRef
         </nav>
 
         <div className="side-bottom">
-          <UsageMini usage={usage} loading={usageLoading} demo={demo} onRefresh={onRefreshUsage} onSweep={onSweep} />
-          {showLogout && <button type="button" className="side-logout" onClick={onLogout}><LogOut aria-hidden="true" />로그아웃</button>}
+          <UsageMini usage={usage} loading={usageLoading} demo={demo} onRefresh={onRefreshUsage} onSweep={onSweep} compact={collapsed} onExpandSidebar={toggleSidebar} />
+          {showLogout && <button type="button" className="side-logout" onClick={onLogout} title="로그아웃"><LogOut aria-hidden="true" /><span>로그아웃</span></button>}
         </div>
       </aside>
 
@@ -348,13 +393,15 @@ export function BoardHome({ boards, demo, showLogout, usage, usageLoading, onRef
           </section>
         )}
 
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+        <SortableContext items={visible.map((board) => board.id)} strategy={rectSortingStrategy}>
         <div className="home-grid">
           {visible.map((board) => {
             const cardCount = board.columns.reduce((sum, column) => sum + column.cards.length, 0);
             const folder = boardFolder(board);
             const style = board.hue !== undefined ? ({ "--board-hue": board.hue } as CSSProperties) : undefined;
             return (
-              <article key={board.id} className={`home-card${board.hue !== undefined ? " has-hue" : ""}`} style={style}>
+              <SortableBoardCard key={board.id} id={board.id} className={`home-card${board.hue !== undefined ? " has-hue" : ""}`} style={style}>
                 <button className="home-open" onClick={() => onOpen(board.id)} aria-label={`${board.title} 열기`}>
                   <span className="home-card-head"><LayoutGrid aria-hidden="true" /><strong>{board.title}</strong></span>
                   <span className="home-chips">
@@ -402,11 +449,13 @@ export function BoardHome({ boards, demo, showLogout, usage, usageLoading, onRef
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </div>
-              </article>
+              </SortableBoardCard>
             );
           })}
           <button className="home-new" onClick={() => onCreate(currentFolder ?? undefined)}><Plus aria-hidden="true" />{currentFolder ? `"${currentFolder}"에 새 보드` : "새 보드 만들기"}</button>
         </div>
+        </SortableContext>
+        </DndContext>
         {needle && visible.length === 0 && <p className="home-empty">일치하는 보드가 없습니다.</p>}
         {!needle && currentFolder && scoped.length === 0 && <p className="home-empty">이 폴더는 비어 있습니다. 보드 메뉴의 <b>폴더로 이동</b>으로 넣거나 위에서 새 보드를 만드세요.</p>}
       </section>

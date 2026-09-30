@@ -93,6 +93,7 @@ import { supabaseConfigured } from "@/lib/supabase-config";
 import { publicSiteOrigin, shareLink } from "@/lib/site-url";
 import { AUTO_SWEEP_AGE, MANUAL_SWEEP_AGE } from "@/lib/attachment-sweep";
 import { missingGuestFeatures, sqlPartsFor, type GuestFunctions } from "@/lib/rpc-errors";
+import { firstPosition, sortBoards } from "@/lib/board-order";
 import { attachmentWeight, planBoardCopy } from "@/lib/board-copy";
 import { extractUrl, looksLikeQuery, MAX_QUERY_LENGTH, webSearchUrl } from "@/lib/search-results";
 import {
@@ -1850,7 +1851,8 @@ export function BoardApp() {
 
   function createBoard(folder?: string) {
     const now = Date.now();
-    const board: BoardData = { id: makeId("board"), title: "새 보드", shareEnabled: false, shareToken: "", ...(folder ? { folder } : {}), createdAt: now, updatedAt: now, columns: [{ id: makeId("column"), title: "첫 번째 칼럼", collapsed: false, cards: [] }] };
+    // 새 보드는 홈 화면 맨 앞에 옵니다.
+    const board: BoardData = { id: makeId("board"), title: "새 보드", shareEnabled: false, shareToken: "", ...(folder ? { folder } : {}), position: firstPosition(boards), createdAt: now, updatedAt: now, columns: [{ id: makeId("column"), title: "첫 번째 칼럼", collapsed: false, cards: [] }] };
     setBoards((current) => [board, ...current]); setActiveBoardId(board.id); markDirty(board.id); setView("board");
   }
 
@@ -1976,6 +1978,7 @@ export function BoardApp() {
             updateBoard(board.id, (item) => folder ? { ...item, folder } : (({ folder: _dropped, ...rest }) => { void _dropped; return rest; })(item));
             toast.success(folder ? `${board.title}을(를) "${folder}" 폴더로 옮겼습니다.` : `${board.title}을(를) 폴더에서 꺼냈습니다.`);
           }}
+          onReorder={(updates) => { for (const item of updates) updateBoard(item.id, (board) => ({ ...board, position: item.position })); }}
           onRenameFolder={(from, to) => {
             // 폴더는 보드에 적힌 이름이므로 그 폴더의 보드를 모두 고칩니다. 저장은 보드마다 차례로 됩니다.
             for (const board of boards) if ((board.folder ?? "") === from) updateBoard(board.id, (item) => to ? { ...item, folder: to } : (({ folder: _dropped, ...rest }) => { void _dropped; return rest; })(item));
@@ -2002,7 +2005,7 @@ export function BoardApp() {
             {!readOnly && <DropdownMenuContent align="start" className="board-menu">
               <DropdownMenuItem onClick={() => setView("home")}><LayoutGrid />모든 보드 보기</DropdownMenuItem>
               <DropdownMenuSeparator />
-              {boards.map((board) => <DropdownMenuItem key={board.id} onClick={() => setActiveBoardId(board.id)}>{board.title}{board.id === activeBoard.id && <span className="current-mark">현재</span>}</DropdownMenuItem>)}
+              {sortBoards(boards).map((board) => <DropdownMenuItem key={board.id} onClick={() => setActiveBoardId(board.id)}>{board.title}{board.id === activeBoard.id && <span className="current-mark">현재</span>}</DropdownMenuItem>)}
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => createBoard(activeBoard.folder)}><Plus />새 보드</DropdownMenuItem>
               <DropdownMenuItem onClick={() => { const title = window.prompt("새 보드 이름", activeBoard.title)?.trim(); if (title) updateActiveBoard((board) => ({ ...board, title })); }}><Pencil />이름 변경</DropdownMenuItem>
@@ -2021,7 +2024,7 @@ export function BoardApp() {
 
       {!supabaseConfigured && !readOnly && <aside className="demo-banner"><span>로컬 데모 모드 · Supabase 설정을 추가하면 계정과 클라우드 저장이 활성화됩니다.</span><a href="https://supabase.com/dashboard" target="_blank" rel="noreferrer">Supabase 열기 <ExternalLink /></a></aside>}
 
-      <div className="board-area">
+      <div className={`board-area${activeBoard.hue !== undefined ? " has-hue" : ""}`} style={activeBoard.hue !== undefined ? ({ "--board-hue": activeBoard.hue } as CSSProperties) : undefined}>
       {touchLayout && activeBoard.columns.length > 1 && (
         <nav className="column-tabs" aria-label="칼럼 이동">
           {activeBoard.columns.map((column, index) => (

@@ -342,7 +342,17 @@ export async function checkGuestFunctions(): Promise<GuestFunctions> {
     return !isMissingFunction(error);
   }
   // 일반 파일 첨부는 함수가 있는지가 아니라 버킷 설정 값을 돌려받아 판단합니다.
-  const filesCheck = supabase().rpc("attachments_accept_files").then(({ data, error }) => !error && data === true, () => false);
+  let filesDetail: string | undefined;
+  const filesCheck = supabase().rpc("attachments_accept_files").then(({ data, error }) => {
+    if (error) {
+      filesDetail = isMissingFunction(error)
+        ? "확인 함수(attachments_accept_files)가 없습니다. SQL 이 끝까지 실행되지 않았을 수 있습니다."
+        : `확인 중 오류: ${error.message}`;
+      return false;
+    }
+    if (data !== true) filesDetail = "확인 함수는 있지만 저장소(attachments 버킷)가 아직 일반 파일 형식(application/octet-stream)을 받지 않습니다.";
+    return data === true;
+  }, () => { filesDetail = "확인 요청을 보내지 못했습니다."; return false; });
   const [post, edit, remove, upload, save, survey, files] = await Promise.all([
     // 수정 열쇠를 받는 새 형태로 확인합니다. 옛 형태만 있으면 새 글에 열쇠가 저장되지 않아
     // 수정도 삭제도 성립하지 않습니다.
@@ -357,7 +367,7 @@ export async function checkGuestFunctions(): Promise<GuestFunctions> {
     exists("submit_survey_response", { token: "", target_column: "", response_id: "", response_answers: {}, edit_key: "" }),
     filesCheck,
   ]);
-  return { post, edit, remove, upload, save, survey, files };
+  return { post, edit, remove, upload, save, survey, files, ...(filesDetail ? { filesDetail } : {}) };
 }
 
 export async function addSharedCard(

@@ -33,6 +33,8 @@ export interface GuestFunctions {
   survey: boolean;
   // 이미지·PDF 가 아닌 일반 파일 첨부(버킷이 application/octet-stream 을 받는지).
   files: boolean;
+  // 일반 파일 첨부가 안 될 때 그 이유. 공유 설정 창에 그대로 보여 주어 원인을 찾게 합니다.
+  filesDetail?: string;
 }
 
 // 화면에 보여 줄 "빠진 기능" 이름들. 갖춰졌으면 빈 배열입니다.

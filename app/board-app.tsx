@@ -24,8 +24,11 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import type { AppUser } from "@/lib/supabase-client";
 import {
+  Download,
+  Eye,
   ExternalLink,
   FileText,
+  Paperclip,
   UserRound,
   GripVertical,
   Image as ImageIcon,
@@ -91,6 +94,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { BoardHome } from "./board-home";
 import { SurveyAnswerDialog, SurveyEditorDialog, SurveyPanel, SurveyResultsDialog } from "./survey-ui";
 import { cleanSurvey, columnSurvey } from "@/lib/survey";
+import { attachmentKindOf, attachmentLabel, downloadUrl, fileBadge, isBlockedFile, previewKindOf } from "@/lib/file-kinds";
 import { cloneStarterBoard } from "@/lib/demo-data";
 import { supabaseConfigured } from "@/lib/supabase-config";
 import { publicSiteOrigin, shareLink } from "@/lib/site-url";
@@ -374,6 +378,7 @@ function writeLocalComments(comments: CardComment[]) {
 function typeIcon(card: BoardCard) {
   if (card.attachments.some((item) => item.kind === "pdf")) return <FileText />;
   if (card.attachments.some((item) => item.kind === "image")) return <ImageIcon />;
+  if (card.attachments.some((item) => item.kind === "file")) return <Paperclip />;
   if (getVideoEmbed(card.link?.url)) return <Play />;
   if (card.link) return <Link2 />;
   return <FileText />;
@@ -726,6 +731,42 @@ function CardPreview({ card }: { card: BoardCard }) {
   return null;
 }
 
+// 뷰어의 일반 파일 한 줄. 내려받기와, HTML·텍스트면 미리보기를 둡니다.
+// HTML 은 sandbox 로 격리된 칸(srcdoc)에 그립니다. allow-same-origin 을 주지 않아 이 앱의 화면·저장소·로그인 정보에
+// 손대지 못하고, 스크립트는 그 칸 안에서만 돕니다.
+const MAX_PREVIEW_BYTES = 3 * 1024 * 1024;
+
+function FileAttachmentView({ attachment }: { attachment: Attachment }) {
+  const previewKind = previewKindOf(attachment);
+  const [preview, setPreview] = useState<{ status: "idle" | "loading" | "ready" | "error"; text?: string; message?: string }>({ status: "idle" });
+  async function openPreview() {
+    if (preview.status === "ready") { setPreview({ status: "idle" }); return; }
+    if (attachment.size > MAX_PREVIEW_BYTES) { setPreview({ status: "error", message: "파일이 커서 미리 볼 수 없습니다. 내려받아 열어 주세요." }); return; }
+    setPreview({ status: "loading" });
+    try {
+      const response = await fetch(attachment.url);
+      if (!response.ok) throw new Error();
+      setPreview({ status: "ready", text: await response.text() });
+    } catch {
+      setPreview({ status: "error", message: "미리 보지 못했습니다. 내려받아 열어 주세요." });
+    }
+  }
+  return (
+    <figure className="viewer-file">
+      <div className="viewer-file-row">
+        <span className="attachment-icon is-file" aria-hidden="true"><b>{fileBadge(attachment.name)}</b></span>
+        <span className="viewer-file-name"><strong>{attachment.name}</strong><small>{attachmentLabel(attachment)} · {formatBytes(attachment.size)}</small></span>
+        {previewKind && <button type="button" className="secondary-button" onClick={() => void openPreview()} aria-expanded={preview.status === "ready"}>{preview.status === "loading" ? <LoaderCircle className="spin" aria-hidden="true" /> : <Eye aria-hidden="true" />}{preview.status === "ready" ? "미리보기 닫기" : "미리보기"}</button>}
+        <a className="primary-button" href={downloadUrl(attachment)} download={attachment.name}><Download aria-hidden="true" />내려받기</a>
+      </div>
+      {preview.status === "error" && <p className="viewer-file-note">{preview.message}</p>}
+      {preview.status === "ready" && (previewKind === "html"
+        ? <iframe className="viewer-file-html" title={`${attachment.name} 미리보기`} sandbox="allow-scripts allow-forms allow-modals" srcDoc={preview.text} referrerPolicy="no-referrer" />
+        : <pre className="viewer-file-text">{(preview.text ?? "").slice(0, 200_000)}</pre>)}
+    </figure>
+  );
+}
+
 // 카드에 표시할 작성자 이름. 손님 카드는 손님 이름, 주인 카드는 저장 당시 이름, 없으면 "작성자"
 function cardAuthor(card: BoardCard, ownerName?: string) {
   return card.guestAuthor || card.authorName || ownerName || "작성자";
@@ -741,13 +782,22 @@ function CardInner({ card, commentSummary, commentsEnabled, ownerName }: { card:
   const service = link ? knownService(link.url) : null;
   const siteLabel = link ? (link.siteName && link.siteName !== host ? link.siteName : service?.label || host) : "";
   const linkTitle = link && link.title && link.title !== host && link.title !== link.siteName && link.title !== siteLabel ? link.title : "";
-  const extraAttachments = card.attachments.length - (card.attachments.some((item) => item.kind === "image" || item.kind === "pdf") ? 1 : 0);
+  // 이미지·PDF 는 맨 위 미리보기에 하나만 나오므로 나머지를 "첨부 N개" 로 세고, 일반 파일은 이름표로 따로 보여 줍니다.
+  const media = card.attachments.filter((item) => item.kind === "image" || item.kind === "pdf");
+  const files = card.attachments.filter((item) => item.kind === "file");
+  const extraAttachments = media.length > 1 ? media.length - 1 : 0;
   return (
     <>
       <strong className="card-title">{card.title}</strong>
       {link && <span className="card-link-line">{video ? "동영상" : siteLabel}{linkTitle && <> · {linkTitle}</>}</span>}
       {card.body && <span className="card-body">{tileBody(card.body)}</span>}
-      {extraAttachments > 0 && <span className="attachment-count">첨부 {card.attachments.length}개</span>}
+      {files.length > 0 && (
+        <span className="card-files">
+          {files.slice(0, 3).map((item) => <span key={item.id} className="card-file"><b>{fileBadge(item.name)}</b><span>{item.name}</span></span>)}
+          {files.length > 3 && <span className="card-file more">+{files.length - 3}</span>}
+        </span>
+      )}
+      {extraAttachments > 0 && <span className="attachment-count">첨부 {media.length}개</span>}
       {commentSummary && (
         <span className="comment-peek">
           <span className="comment-peek-head">
@@ -1661,8 +1711,9 @@ export function BoardApp() {
   async function addFiles(files: FileList | File[]): Promise<number> {
     if (!draft || !activeBoard) return 0;
     const typed = Array.from(files).filter((file) => {
-      const allowed = file.type.startsWith("image/") || file.type === "application/pdf";
-      if (!allowed || file.type.startsWith("video/")) { toast.error(`${file.name}: 이미지와 PDF만 첨부할 수 있습니다.`); return false; }
+      // 동영상은 용량이 커서 링크로 붙이게 하고, 내려받아 누르면 바로 실행되는 파일은 막습니다.
+      if (file.type.startsWith("video/")) { toast.error(`${file.name}: 동영상은 첨부할 수 없습니다. 유튜브 등에 올린 뒤 링크로 붙여 주세요.`); return false; }
+      if (isBlockedFile(file.name)) { toast.error(`${file.name}: 실행 파일은 안전을 위해 첨부할 수 없습니다.`); return false; }
       return true;
     });
     if (!typed.length) return 0;
@@ -1706,7 +1757,7 @@ export function BoardApp() {
     if (!activeBoard) throw new Error("보드가 없습니다.");
     if (supabaseConfigured && guestPosting && sharedToken) return (await import("@/lib/supabase-client")).uploadGuestAttachment(file, activeBoard.id, id);
     if (supabaseConfigured && user) return (await import("@/lib/supabase-client")).uploadAttachment(file, user.uid, activeBoard.id, id);
-    return { id, name: file.name, kind: file.type === "application/pdf" ? "pdf" : "image", mimeType: file.type, size: file.size, url: await fileToDataUrl(file) };
+    return { id, name: file.name, kind: attachmentKindOf(file), mimeType: file.type, size: file.size, url: await fileToDataUrl(file) };
   }
 
   function deleteDraftAttachment(attachment: Attachment) {
@@ -2078,7 +2129,7 @@ export function BoardApp() {
     setCopyingSql(true);
     try {
       const sql = await import("@/lib/generated-sql");
-      const text = parts.map((part) => ({ uploads: sql.GUEST_UPLOADS_SQL, cards: sql.GUEST_CARDS_SQL, delete: sql.GUEST_CARD_DELETE_SQL, save: sql.SAVE_BOARD_SQL, survey: sql.SURVEYS_SQL })[part]).join("\n\n");
+      const text = parts.map((part) => ({ uploads: sql.GUEST_UPLOADS_SQL, cards: sql.GUEST_CARDS_SQL, delete: sql.GUEST_CARD_DELETE_SQL, save: sql.SAVE_BOARD_SQL, survey: sql.SURVEYS_SQL, files: sql.FILE_ATTACHMENTS_SQL })[part]).join("\n\n");
       await navigator.clipboard.writeText(text);
       toast.success("SQL을 복사했습니다. Supabase SQL Editor를 비우고 붙여 넣은 뒤 Run 하세요.");
     } catch {
@@ -2259,8 +2310,8 @@ export function BoardApp() {
                   <p className="link-search-help">새 창에서 찾은 페이지의 주소를 복사한 뒤, 이 창으로 돌아와 <b>복사한 주소 붙이기</b>를 누르세요.</p>
                 </div>
               )}{draft.link && <a className="link-preview" href={draft.link.url} target="_blank" rel="noreferrer"><LinkRowImage key={`${draft.link.url}|${draft.link.image ?? ""}`} link={draft.link} /><span><small>{getVideoEmbed(draft.link.url) ? "동영상 · 카드에서 바로 재생" : linkLabel(draft.link)}</small><strong>{draft.link.title}</strong><em>{draft.link.description}</em></span><ExternalLink /></a>}{draft.link && (!readOnly || guestPosting) && <button type="button" className="text-button link-remove" onClick={removeDraftLink}><X />링크 제거</button>}</section>
-            <section><div className="section-label"><UploadCloud />첨부</div>{(!readOnly || guestPosting) && <button className="drop-zone" type="button" onClick={() => fileInputRef.current?.click()} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); void addFiles(event.dataTransfer.files); }}>{uploading ? <LoaderCircle className="spin" /> : <UploadCloud />}<span>이미지 또는 PDF를 선택하거나 끌어 놓으세요. 복사한 이미지는 Ctrl+V로 붙여넣어도 됩니다.</span><small>{supabaseConfigured ? "파일당 최대 30MB" : "데모 모드 파일당 최대 2MB"} · 동영상 제외</small><input ref={fileInputRef} hidden type="file" multiple accept="image/*,application/pdf" onChange={(event) => event.target.files && void addFiles(event.target.files)} /></button>}
-              {draft.attachments.length > 0 && <div className="attachment-grid">{draft.attachments.map((attachment) => <article className="attachment-item" key={attachment.id}>{attachment.kind === "image" ? <img src={attachment.url} alt={attachment.name} /> : attachment.thumbnailUrl ? <img src={attachment.thumbnailUrl} alt={attachment.name} /> : <span className="attachment-icon" aria-hidden="true"><FileText /></span>}<div><strong>{attachment.name}</strong><span>{attachment.kind === "pdf" ? "PDF" : "이미지"} · {formatBytes(attachment.size)}</span></div><a href={attachment.url} target="_blank" rel="noreferrer" aria-label={`${attachment.name} 열기`}><ExternalLink /></a>{(!readOnly || guestPosting) && <button onClick={() => deleteDraftAttachment(attachment)} aria-label={`${attachment.name} 삭제`}><X /></button>}</article>)}</div>}
+            <section><div className="section-label"><UploadCloud />첨부</div>{(!readOnly || guestPosting) && <button className="drop-zone" type="button" onClick={() => fileInputRef.current?.click()} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); void addFiles(event.dataTransfer.files); }}>{uploading ? <LoaderCircle className="spin" /> : <UploadCloud />}<span>이미지, PDF, 그 밖의 파일(HTML·한글·엑셀 등)을 선택하거나 끌어 놓으세요. 복사한 이미지는 Ctrl+V로 붙여넣어도 됩니다.</span><small>{supabaseConfigured ? "파일당 최대 30MB" : "데모 모드 파일당 최대 2MB"} · 동영상·실행 파일 제외</small><input ref={fileInputRef} hidden type="file" multiple onChange={(event) => event.target.files && void addFiles(event.target.files)} /></button>}
+              {draft.attachments.length > 0 && <div className="attachment-grid">{draft.attachments.map((attachment) => <article className="attachment-item" key={attachment.id}>{attachment.kind === "image" ? <img src={attachment.url} alt={attachment.name} /> : attachment.thumbnailUrl ? <img src={attachment.thumbnailUrl} alt={attachment.name} /> : attachment.kind === "file" ? <span className="attachment-icon is-file" aria-hidden="true"><b>{fileBadge(attachment.name)}</b></span> : <span className="attachment-icon" aria-hidden="true"><FileText /></span>}<div><strong>{attachment.name}</strong><span>{attachmentLabel(attachment)} · {formatBytes(attachment.size)}</span></div>{attachment.kind === "file" ? <a href={downloadUrl(attachment)} download={attachment.name} aria-label={`${attachment.name} 내려받기`}><Download /></a> : <a href={attachment.url} target="_blank" rel="noreferrer" aria-label={`${attachment.name} 열기`}><ExternalLink /></a>}{(!readOnly || guestPosting) && <button onClick={() => deleteDraftAttachment(attachment)} aria-label={`${attachment.name} 삭제`}><X /></button>}</article>)}</div>}
             </section>
           </div>}
           <DialogFooter><button className="secondary-button" onClick={() => setEditorOpen(false)}>{readOnly && !guestPosting ? "닫기" : "취소"}</button>{(!readOnly || guestPosting) && <button className="primary-button" onClick={() => void saveDraft()} disabled={uploading}>{uploading && <LoaderCircle className="spin" aria-hidden="true" />}{guestPosting && draft?.id ? "수정 저장" : draftQuestion && !draft?.id ? "답변 올리기" : guestPosting ? "올리기" : "저장"}</button>}</DialogFooter>
@@ -2290,6 +2341,8 @@ export function BoardApp() {
                   <button type="button" onClick={() => setLightboxUrl(attachment.url)} aria-label={`${attachment.name} 전체 화면으로 보기`}><img src={attachment.url} alt={attachment.name} /><span className="zoom-hint"><Maximize2 aria-hidden="true" /></span></button>
                   <figcaption><ImageIcon aria-hidden="true" /><span>{attachment.name}</span><small>{formatBytes(attachment.size)}</small><a href={attachment.url} target="_blank" rel="noreferrer">원본 열기<ExternalLink aria-hidden="true" /></a></figcaption>
                 </figure>
+              ) : attachment.kind === "file" ? (
+                <FileAttachmentView key={attachment.id} attachment={attachment} />
               ) : (
                 <figure className="viewer-pdf" key={attachment.id}>
                   {inlinePdf ? <iframe src={`${attachment.url}#toolbar=1&navpanes=0&view=FitH`} title={attachment.name} /> : <PdfPages url={attachment.url} name={attachment.name} poster={attachment.thumbnailUrl} />}

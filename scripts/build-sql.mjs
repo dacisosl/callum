@@ -112,12 +112,32 @@ from pg_proc p join pg_namespace n on n.oid = p.pronamespace
 where n.nspname = 'public' and p.proname = 'submit_survey_response';
 `;
 
+const fileAttachments = `-- 이미지·PDF 말고 일반 파일(HTML, 한글, 엑셀 등)도 첨부할 수 있게 하는 스크립트입니다.
+-- Supabase 대시보드 > SQL Editor 에 통째로 붙여 넣고 Run 하세요. 여러 번 실행해도 안전합니다.
+-- schema.sql 전체를 실행해도 같은 내용이 들어갑니다.
+--
+-- 일반 파일은 앱이 내려받기 전용 형식(application/octet-stream)으로 올리므로, 공개 주소를 열어도 웹 페이지로
+-- 실행되지 않습니다. 실행 파일(exe, bat 등)은 손님 첨부에서 서버가 한 번 더 막습니다.
+
+${section("insert into storage.buckets", "      allowed_mime_types = excluded.allowed_mime_types;")}
+
+${section("create or replace function public.attachments_accept_files", "grant execute on function public.attachments_accept_files")}
+
+${section("create or replace function public.clean_guest_attachments", "$$;")}
+
+-- 확인용. 마지막 열이 true 면 정상입니다.
+select id, allowed_mime_types, public.attachments_accept_files() as 일반_파일_허용
+from storage.buckets
+where id = 'attachments';
+`;
+
 const files = {
   "supabase/fix-guest-uploads.sql": uploads,
   "supabase/guest-cards.sql": cards,
   "supabase/guest-card-delete.sql": deleteOnly,
   "supabase/save-board.sql": save,
   "supabase/surveys.sql": surveys,
+  "supabase/file-attachments.sql": fileAttachments,
 };
 
 for (const [path, body] of Object.entries(files)) {
@@ -138,6 +158,8 @@ export const GUEST_CARD_DELETE_SQL = ${quote(deleteOnly)};
 export const SAVE_BOARD_SQL = ${quote(save)};
 
 export const SURVEYS_SQL = ${quote(surveys)};
+
+export const FILE_ATTACHMENTS_SQL = ${quote(fileAttachments)};
 `;
 
 mkdirSync(join(root, "lib"), { recursive: true });

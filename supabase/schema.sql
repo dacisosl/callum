@@ -61,11 +61,30 @@ grant execute on function public.get_shared_board(text) to anon, authenticated;
 -- 4. 첨부파일 버킷: 공개 읽기(공유 링크용), 쓰기는 자기 폴더({user_id}/...)에만 허용합니다.
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 -- 파일당 30MB. 앱의 MAX_CLOUD_FILE 과 같은 값입니다.
-values ('attachments', 'attachments', true, 31457280, array['image/*', 'application/pdf'])
+-- 이미지·PDF 가 아닌 파일(HTML, 한글, 엑셀 등)은 앱이 application/octet-stream 으로 올립니다. 그래야 공개 주소를
+-- 열어도 웹 페이지로 실행되지 않고 내려받기만 됩니다. 그래서 허용 형식은 이 셋만 둡니다.
+values ('attachments', 'attachments', true, 31457280, array['image/*', 'application/pdf', 'application/octet-stream'])
 on conflict (id) do update
   set public = excluded.public,
       file_size_limit = excluded.file_size_limit,
       allowed_mime_types = excluded.allowed_mime_types;
+
+-- 앱이 "일반 파일 첨부" 가 준비되었는지 확인할 때 부릅니다. 버킷이 application/octet-stream 을 받으면 true 입니다.
+create or replace function public.attachments_accept_files()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public, storage
+as $$
+  select coalesce((
+    select b.allowed_mime_types is null or 'application/octet-stream' = any(b.allowed_mime_types)
+    from storage.buckets b
+    where b.id = 'attachments'
+  ), false);
+$$;
+
+grant execute on function public.attachments_accept_files() to anon, authenticated;
 
 drop policy if exists "attachments owner select" on storage.objects;
 drop policy if exists "attachments owner insert" on storage.objects;
@@ -308,7 +327,9 @@ begin
   end if;
   for attachment in select * from jsonb_array_elements(raw) loop
     if jsonb_typeof(attachment) <> 'object'
-       or coalesce(attachment ->> 'kind', '') not in ('image', 'pdf')
+       or coalesce(attachment ->> 'kind', '') not in ('image', 'pdf', 'file')
+       -- 내려받아 누르면 바로 실행되는 형식은 받지 않습니다. 앱의 lib/file-kinds.ts 와 같은 목록입니다.
+       or lower(coalesce(attachment ->> 'name', '')) ~ '\.(exe|msi|bat|cmd|com|scr|pif|cpl|hta|jar|lnk|reg|vbs|vbe|wsf|wsh|ps1|psm1|apk|app|dmg|pkg|deb|rpm|sh)$'
        or coalesce(attachment ->> 'storagePath', '') not like ('guest/' || board_id || '/%')
        or coalesce(attachment ->> 'url', '') not like ('%/storage/v1/object/public/attachments/guest/' || board_id || '/%')
        or coalesce((attachment ->> 'size')::bigint, 0) < 0

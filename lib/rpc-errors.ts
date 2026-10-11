@@ -31,6 +31,8 @@ export interface GuestFunctions {
   save: boolean;
   // 설문 응답을 받는 submit_survey_response 와 survey_responses 표.
   survey: boolean;
+  // 이미지·PDF 가 아닌 일반 파일 첨부(버킷이 application/octet-stream 을 받는지).
+  files: boolean;
 }
 
 // 화면에 보여 줄 "빠진 기능" 이름들. 갖춰졌으면 빈 배열입니다.
@@ -43,12 +45,13 @@ export function missingGuestFeatures(found: GuestFunctions | null): string[] {
     !found.upload && "파일 업로드",
     !found.save && "동시 저장 보호",
     !found.survey && "설문 응답",
+    !found.files && "일반 파일 첨부",
   ].filter((item): item is string => Boolean(item));
 }
 
 // 빠진 것을 메우는 데 필요한 SQL 조각들. 실제 내용은 lib/generated-sql.ts 에 있고, 여기서는
 // 어느 것들을 이 순서로 이어 붙일지만 고릅니다. 갖춰졌으면 빈 배열입니다.
-export type SqlPart = "uploads" | "cards" | "delete" | "save" | "survey";
+export type SqlPart = "uploads" | "cards" | "delete" | "save" | "survey" | "files";
 
 export function sqlPartsFor(found: GuestFunctions | null): SqlPart[] {
   if (!found) return [];
@@ -59,5 +62,6 @@ export function sqlPartsFor(found: GuestFunctions | null): SqlPart[] {
   else if (!found.remove) parts.push("delete");
   if (!found.save) parts.push("save");
   if (!found.survey) parts.push("survey");
+  if (!found.files) parts.push("files");
   return parts;
 }

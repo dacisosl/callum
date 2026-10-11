@@ -41,7 +41,9 @@ begin
   end if;
   for attachment in select * from jsonb_array_elements(raw) loop
     if jsonb_typeof(attachment) <> 'object'
-       or coalesce(attachment ->> 'kind', '') not in ('image', 'pdf')
+       or coalesce(attachment ->> 'kind', '') not in ('image', 'pdf', 'file')
+       -- 내려받아 누르면 바로 실행되는 형식은 받지 않습니다. 앱의 lib/file-kinds.ts 와 같은 목록입니다.
+       or lower(coalesce(attachment ->> 'name', '')) ~ '\.(exe|msi|bat|cmd|com|scr|pif|cpl|hta|jar|lnk|reg|vbs|vbe|wsf|wsh|ps1|psm1|apk|app|dmg|pkg|deb|rpm|sh)$'
        or coalesce(attachment ->> 'storagePath', '') not like ('guest/' || board_id || '/%')
        or coalesce(attachment ->> 'url', '') not like ('%/storage/v1/object/public/attachments/guest/' || board_id || '/%')
        or coalesce((attachment ->> 'size')::bigint, 0) < 0

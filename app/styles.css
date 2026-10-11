@@ -895,3 +895,27 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   .survey-type-row, .survey-options-edit, .survey-text-hint { padding-left: 0; }
   .survey-clear { margin-left: 0; }
 }
+
+/* 일반 파일 첨부: 카드의 이름표, 편집창 아이콘, 뷰어 한 줄과 미리보기 */
+.card-files { display: flex; flex-wrap: wrap; gap: 5px; }
+.card-file { max-width: 100%; display: inline-flex; align-items: center; gap: 6px; min-height: 26px; padding: 0 9px 0 4px; border: 1px solid var(--border); border-radius: 8px; background: #f7f9fa; color: #34424c; font-size: 12px; font-weight: 650; }
+.card-file b { flex: none; padding: 1px 5px; border-radius: 5px; background: #e5ecf7; color: #2d4f8f; font-size: 10px; font-weight: 800; letter-spacing: .02em; }
+.card-file span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card-file.more { padding: 0 8px; color: #7a868e; }
+.attachment-icon.is-file { background: #eef3fb; color: #2d4f8f; }
+.attachment-icon.is-file b { padding: 3px 7px; border-radius: 6px; background: white; font-size: 12px; font-weight: 850; letter-spacing: .03em; box-shadow: 0 1px 2px rgba(20,30,38,.08); }
+.viewer-file { display: grid; gap: 10px; margin: 0; }
+.viewer-file-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 10px; border: 1px solid var(--border); border-radius: 14px; background: white; }
+.viewer-file-row > .attachment-icon { width: 54px; height: 54px; display: grid; place-items: center; flex: none; border-radius: 11px; }
+.viewer-file-name { min-width: 0; flex: 1 1 160px; display: grid; gap: 2px; }
+.viewer-file-name strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #1d2830; font-size: 14px; }
+.viewer-file-name small { color: #78848c; font-size: 12px; }
+.viewer-file-row .primary-button, .viewer-file-row .secondary-button { display: inline-flex; align-items: center; gap: 5px; min-height: 38px; padding: 0 13px; font-size: 13px; text-decoration: none; }
+.viewer-file-row svg { width: 15px; }
+.viewer-file-note { margin: 0; color: #8a5a10; font-size: 12.5px; }
+.viewer-file-html { width: 100%; height: min(70vh, 680px); display: block; border: 1px solid var(--border); border-radius: 14px; background: white; }
+.viewer-file-text { max-height: 60vh; margin: 0; padding: 12px 14px; overflow: auto; border: 1px solid var(--border); border-radius: 12px; background: #f7f9fa; color: #25333c; font: 12.5px/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+@media (max-width: 760px) {
+  .viewer-file-row .primary-button, .viewer-file-row .secondary-button { flex: 1 1 auto; justify-content: center; }
+  .viewer-file-html { height: 60vh; }
+}

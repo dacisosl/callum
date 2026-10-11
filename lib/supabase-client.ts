@@ -4,6 +4,7 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { Attachment, BoardCard, BoardData, CardComment, LinkPreviewData, SurveyAnswers, SurveyResponse, UsageSnapshot } from "./board-types";
 import { chunk, orphanFiles, referencedPaths, type StoredFile } from "./attachment-sweep";
 import { isMissingFunction, isMissingTable, type GuestFunctions } from "./rpc-errors";
+import { attachmentKindOf, uploadContentType } from "./file-kinds";
 import { supabaseConfig, supabaseConfigured } from "./supabase-config";
 
 export type AppUser = { uid: string; email: string | null };
@@ -32,6 +33,8 @@ const messages: Record<string, string> = {
 };
 
 function translate(error: { message: string }): Error {
+  // 버킷이 아직 일반 파일 형식을 받지 않을 때(supabase/file-attachments.sql 을 안 돌림).
+  if (/mime type .* is not supported/i.test(error.message)) return new Error("이 형식의 파일은 아직 올릴 수 없습니다. 보드 주인이 공유 설정 창에서 \"일반 파일 첨부\" SQL 을 실행해야 합니다.");
   return new Error(messages[error.message] ?? error.message);
 }
 
@@ -188,14 +191,14 @@ export async function uploadAttachment(
   const storagePath = `${ownerId}/${boardId}/${safeFileKey(file, attachmentId)}`;
   const storage = supabase().storage.from(BUCKET);
   const { error } = await storage.upload(storagePath, file, {
-    contentType: file.type,
+    contentType: uploadContentType(file),
     upsert: false,
   });
   if (error) throw translate(error);
   return {
     id: attachmentId,
     name: file.name,
-    kind: file.type === "application/pdf" ? "pdf" : "image",
+    kind: attachmentKindOf(file),
     mimeType: file.type,
     size: file.size,
     url: storage.getPublicUrl(storagePath).data.publicUrl,
@@ -208,12 +211,12 @@ export async function uploadAttachment(
 export async function uploadGuestAttachment(file: File, boardId: string, attachmentId: string): Promise<Attachment> {
   const storagePath = `guest/${boardId}/${safeFileKey(file, attachmentId)}`;
   const storage = supabase().storage.from(BUCKET);
-  const { error } = await storage.upload(storagePath, file, { contentType: file.type, upsert: false });
+  const { error } = await storage.upload(storagePath, file, { contentType: uploadContentType(file), upsert: false });
   if (error) throw translate(error);
   return {
     id: attachmentId,
     name: file.name,
-    kind: file.type === "application/pdf" ? "pdf" : "image",
+    kind: attachmentKindOf(file),
     mimeType: file.type,
     size: file.size,
     url: storage.getPublicUrl(storagePath).data.publicUrl,
@@ -338,7 +341,9 @@ export async function checkGuestFunctions(): Promise<GuestFunctions> {
     const { error } = await supabase().rpc(name, args);
     return !isMissingFunction(error);
   }
-  const [post, edit, remove, upload, save, survey] = await Promise.all([
+  // 일반 파일 첨부는 함수가 있는지가 아니라 버킷 설정 값을 돌려받아 판단합니다.
+  const filesCheck = supabase().rpc("attachments_accept_files").then(({ data, error }) => !error && data === true, () => false);
+  const [post, edit, remove, upload, save, survey, files] = await Promise.all([
     // 수정 열쇠를 받는 새 형태로 확인합니다. 옛 형태만 있으면 새 글에 열쇠가 저장되지 않아
     // 수정도 삭제도 성립하지 않습니다.
     exists("add_shared_card", { token: "", card_id: "", target_column: "", card_title: "", card_body: "", card_link: null, author: "", card_attachments: [], card_edit_key: "" }),
@@ -350,8 +355,9 @@ export async function checkGuestFunctions(): Promise<GuestFunctions> {
     exists("save_board", { board_id: "", board: {}, removed_card_ids: [] }),
     // 빈 토큰이면 함수 안에서 거부되어 아무것도 쓰지 않습니다.
     exists("submit_survey_response", { token: "", target_column: "", response_id: "", response_answers: {}, edit_key: "" }),
+    filesCheck,
   ]);
-  return { post, edit, remove, upload, save, survey };
+  return { post, edit, remove, upload, save, survey, files };
 }
 
 export async function addSharedCard(

@@ -1,4 +1,5 @@
-export type AttachmentKind = "image" | "pdf";
+// file 은 이미지·PDF 가 아닌 모든 첨부(HTML, 한글, 엑셀 등). lib/file-kinds.ts 참고.
+export type AttachmentKind = "image" | "pdf" | "file";
 
 export interface Attachment {
   id: string;

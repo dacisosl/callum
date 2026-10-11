@@ -74,6 +74,16 @@ Vercel은 배포마다 `callum-xxxxxxxx-....vercel.app` 같은 **배포 전용 �
 - 공유받은 사람이 답을 올리려면 보드의 "읽기 전용 링크"와 "공유받은 사람의 글쓰기"가 모두 켜져 있어야 합니다. 꺼져 있으면 질문 설정 창이 알려 주고 공유 설정을 바로 열 수 있습니다.
 - 데이터는 칼럼의 `question` 필드에 들어갑니다. 보드 전체가 `boards.data` JSONB 한 덩어리로 저장되므로 **Supabase 스키마를 다시 실행할 필요가 없습니다.**
 
+### 일반 파일 첨부
+
+이미지·PDF 말고도 HTML, 한글(HWP), 엑셀, 워드, ZIP, TXT 같은 파일을 카드에 붙일 수 있습니다(파일당 30MB). 동영상과 실행 파일(exe, bat, msi 등)은 막습니다.
+
+- 카드에는 `HTML quiz.html` 처럼 형식 이름표가 붙고, 카드 뷰어에서 **내려받기**를 누르면 원래 이름으로 저장됩니다
+- HTML 은 뷰어의 **미리보기**로 바로 볼 수 있습니다. sandbox 로 격리된 칸(`srcdoc`, `allow-same-origin` 없음)에 그려서, 페이지 안의 스크립트는 돌아가지만 이 앱의 화면·저장소·로그인 정보에는 손대지 못합니다. txt·csv·md·json 같은 글 파일은 내용을 그대로 보여 줍니다(3MB 이하)
+- 일반 파일은 저장소에 `application/octet-stream`(내려받기 전용)으로 올립니다. 공개 주소를 직접 열어도 웹 페이지로 실행되지 않고 내려받기만 됩니다. SVG 도 스크립트를 담을 수 있어 같은 방식으로 다룹니다
+- 손님 첨부는 서버의 `clean_guest_attachments` 가 실행 파일 확장자를 한 번 더 거릅니다. 막는 목록은 `lib/file-kinds.ts` 와 같습니다
+- 쓰려면 Supabase 에 `supabase/file-attachments.sql` 을 한 번 실행해야 합니다(버킷 허용 형식에 octet-stream 추가). 공유 설정 창에 "일반 파일 첨부"가 빠졌다고 뜨면 **SQL 복사**로 넣으세요. 실행 전에는 일반 파일을 올리면 그 안내가 뜨고, 이미지·PDF 는 그대로 됩니다
+
 ### 설문 섹션
 
 칼럼 메뉴(`…`)의 **설문 섹션으로 만들기**로 칼럼 맨 위에 설문을 둡니다. 한 섹션에 질문을 여러 개(최대 30개) 넣을 수 있고,
@@ -167,6 +177,7 @@ Vercel은 배포마다 `callum-xxxxxxxx-....vercel.app` 같은 **배포 전용 �
 | 수정·삭제가 안 됨 | `supabase/guest-cards.sql` |
 | "동시 저장 보호" 가 빠졌다고 뜸 | `supabase/save-board.sql` |
 | "설문 응답" 이 빠졌다고 뜸 | `supabase/surveys.sql` |
+| "일반 파일 첨부" 가 빠졌다고 뜸 | `supabase/file-attachments.sql` |
 | 처음부터 설치하거나 전부 맞추고 싶을 때 | `supabase/schema.sql` |
 
 ### SQL 파일은 생성물입니다
@@ -178,7 +189,7 @@ Vercel은 배포마다 `callum-xxxxxxxx-....vercel.app` 같은 **배포 전용 �
 - 고칠 내용은 `supabase/schema.sql` 에 반영하고 `npm run sql` 을 돌립니다
 - `npm run build` 앞에서도 자동으로 돌아, 배포에 낡은 내용이 실릴 수 없습니다
 - `supabase/fix-guest-uploads.sql`, `supabase/guest-cards.sql`, `supabase/guest-card-delete.sql`,
-  `supabase/save-board.sql`, `supabase/surveys.sql`, `lib/generated-sql.ts` 는 모두 생성물이니 직접 고치지 마세요
+  `supabase/save-board.sql`, `supabase/surveys.sql`, `supabase/file-attachments.sql`, `lib/generated-sql.ts` 는 모두 생성물이니 직접 고치지 마세요
 
 ### 여러 사람이 동시에 올릴 때 카드를 잃지 않기 (`save_board`)
 

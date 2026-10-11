@@ -1,9 +1,9 @@
 "use client";
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import type { Attachment, BoardCard, BoardData, CardComment, LinkPreviewData, UsageSnapshot } from "./board-types";
+import type { Attachment, BoardCard, BoardData, CardComment, LinkPreviewData, SurveyAnswers, SurveyResponse, UsageSnapshot } from "./board-types";
 import { chunk, orphanFiles, referencedPaths, type StoredFile } from "./attachment-sweep";
-import { isMissingFunction, type GuestFunctions } from "./rpc-errors";
+import { isMissingFunction, isMissingTable, type GuestFunctions } from "./rpc-errors";
 import { supabaseConfig, supabaseConfigured } from "./supabase-config";
 
 export type AppUser = { uid: string; email: string | null };
@@ -338,7 +338,7 @@ export async function checkGuestFunctions(): Promise<GuestFunctions> {
     const { error } = await supabase().rpc(name, args);
     return !isMissingFunction(error);
   }
-  const [post, edit, remove, upload, save] = await Promise.all([
+  const [post, edit, remove, upload, save, survey] = await Promise.all([
     // 수정 열쇠를 받는 새 형태로 확인합니다. 옛 형태만 있으면 새 글에 열쇠가 저장되지 않아
     // 수정도 삭제도 성립하지 않습니다.
     exists("add_shared_card", { token: "", card_id: "", target_column: "", card_title: "", card_body: "", card_link: null, author: "", card_attachments: [], card_edit_key: "" }),
@@ -348,8 +348,10 @@ export async function checkGuestFunctions(): Promise<GuestFunctions> {
     exists("board_accepts_guest_files", { board_id: "" }),
     // 주인 저장을 서버에서 합치는 함수. 빈 ID 는 함수 안에서 거부되므로 아무것도 만들지 않습니다.
     exists("save_board", { board_id: "", board: {}, removed_card_ids: [] }),
+    // 빈 토큰이면 함수 안에서 거부되어 아무것도 쓰지 않습니다.
+    exists("submit_survey_response", { token: "", target_column: "", response_id: "", response_answers: {}, edit_key: "" }),
   ]);
-  return { post, edit, remove, upload, save };
+  return { post, edit, remove, upload, save, survey };
 }
 
 export async function addSharedCard(
@@ -480,4 +482,39 @@ export async function measureUsage(ownerId: string, boards: BoardData[]): Promis
     measuredAt: Date.now(),
     partial,
   };
+}
+
+// 설문 응답 제출과 수정. 같은 responseId 로 다시 보내면 열쇠가 맞을 때 고칩니다. 서버가 거른 답을 돌려줍니다.
+export async function submitSurveyResponse(token: string, columnId: string, responseId: string, answers: SurveyAnswers, editKey: string): Promise<{ answers: SurveyAnswers; updatedAt: number }> {
+  const { data, error } = await supabase().rpc("submit_survey_response", {
+    token,
+    target_column: columnId,
+    response_id: responseId,
+    response_answers: answers,
+    edit_key: editKey,
+  });
+  if (isMissingFunction(error)) throw new Error("이 보드는 아직 설문 응답을 받을 준비가 되지 않았습니다. 보드 주인에게 알려 주세요.");
+  if (error) throw translate(error);
+  const result = data as { answers?: SurveyAnswers; updatedAt?: number } | null;
+  return { answers: result?.answers ?? answers, updatedAt: result?.updatedAt ?? Date.now() };
+}
+
+type SurveyRow = { id: string; column_id: string; answers: SurveyAnswers; created_at: number; updated_at: number };
+
+// 보드 주인용. RLS 로 자기 보드의 응답만 읽힙니다. 응답 표가 아직 없으면(SQL 을 안 돌림) null 입니다.
+export async function loadSurveyResponses(boardId: string): Promise<SurveyResponse[] | null> {
+  const { data, error } = await supabase()
+    .from("survey_responses")
+    .select("id, column_id, answers, created_at, updated_at")
+    .eq("board_id", boardId)
+    .order("created_at", { ascending: true })
+    .limit(5000);
+  if (isMissingTable(error)) return null;
+  if (error) throw translate(error);
+  return ((data ?? []) as SurveyRow[]).map((row) => ({ id: row.id, columnId: row.column_id, answers: row.answers ?? {}, createdAt: Number(row.created_at), updatedAt: Number(row.updated_at) }));
+}
+
+export async function clearSurveyResponses(boardId: string, columnId: string) {
+  const { error } = await supabase().from("survey_responses").delete().eq("board_id", boardId).eq("column_id", columnId);
+  if (error) throw translate(error);
 }

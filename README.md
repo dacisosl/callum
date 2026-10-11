@@ -74,6 +74,18 @@ Vercel은 배포마다 `callum-xxxxxxxx-....vercel.app` 같은 **배포 전용 �
 - 공유받은 사람이 답을 올리려면 보드의 "읽기 전용 링크"와 "공유받은 사람의 글쓰기"가 모두 켜져 있어야 합니다. 꺼져 있으면 질문 설정 창이 알려 주고 공유 설정을 바로 열 수 있습니다.
 - 데이터는 칼럼의 `question` 필드에 들어갑니다. 보드 전체가 `boards.data` JSONB 한 덩어리로 저장되므로 **Supabase 스키마를 다시 실행할 필요가 없습니다.**
 
+### 설문 섹션
+
+칼럼 메뉴(`…`)의 **설문 섹션으로 만들기**로 칼럼 맨 위에 설문을 둡니다. 한 섹션에 질문을 여러 개(최대 30개) 넣을 수 있고,
+질문마다 **객관식(하나 고르기) · 복수 선택 · 단답형** 중에서 고르며 필수 여부를 정합니다. 응답 마감도 설문 편집 창에서 켭니다.
+
+- 공유 링크로 들어온 사람은 **설문 참여하기**로 **익명** 응답합니다. 같은 브라우저에서는 응답이 하나로 묶여 나중에 **응답 고치기**를 할 수 있습니다
+- 결과는 **보드 주인만** 봅니다. 패널의 **결과 보기**를 누르면 객관식은 가로 막대(인원·비율), 단답형은 답 목록으로 나오고 **CSV 내려받기**(엑셀에서 바로 열림)와 **응답 모두 지우기**가 있습니다. 복수 선택의 비율은 그 질문에 답한 사람 기준입니다
+- 응답은 공유 링크로 읽히지 않도록 보드 데이터 밖의 `survey_responses` 표에 따로 두고, 주인만 RLS 로 읽고 지웁니다. 손님은 `submit_survey_response` 함수로만 쓰며, 함수가 설문 정의에 맞춰 답을 다시 거릅니다(없는 질문·보기는 버리고, 필수 질문이 비면 거부, 마감된 설문은 거부, 보드당 5,000개 상한)
+- 질문 섹션과 설문은 함께 쓰지 않습니다. 한쪽으로 바꾸면 다른 쪽은 내려놓고, 받은 응답은 남습니다
+- 설문을 쓰려면 Supabase 에 `supabase/surveys.sql` 을 한 번 실행해야 합니다. 공유 설정 창에 "설문 응답"이 빠졌다고 뜨면 **SQL 복사**로 넣으세요
+- 순수 로직(설문 정리·응답 검증·집계·CSV)은 `lib/survey.ts`, 화면은 `app/survey-ui.tsx` 에 있습니다
+
 ### 손님 카드 보호
 
 주인 화면은 보드 전체를 통째로 저장합니다. 예전에는 주인이 보드를 열어 둔 사이 손님이 올린 카드가 다음 저장 때 덮어써져 사라졌습니다. 이제 글쓰기가 켜진 보드는 저장 직전에 서버 쪽 데이터를 읽어, 내 화면에 없는 손님 카드를 되살려 함께 저장합니다(`lib/supabase-client.ts`의 `withGuestCards`). 주인이 방금 지운 카드는 되살아나지 않습니다.
@@ -154,6 +166,7 @@ Vercel은 배포마다 `callum-xxxxxxxx-....vercel.app` 같은 **배포 전용 �
 | 손님이 파일을 못 올림 | `supabase/fix-guest-uploads.sql` |
 | 수정·삭제가 안 됨 | `supabase/guest-cards.sql` |
 | "동시 저장 보호" 가 빠졌다고 뜸 | `supabase/save-board.sql` |
+| "설문 응답" 이 빠졌다고 뜸 | `supabase/surveys.sql` |
 | 처음부터 설치하거나 전부 맞추고 싶을 때 | `supabase/schema.sql` |
 
 ### SQL 파일은 생성물입니다
@@ -165,7 +178,7 @@ Vercel은 배포마다 `callum-xxxxxxxx-....vercel.app` 같은 **배포 전용 �
 - 고칠 내용은 `supabase/schema.sql` 에 반영하고 `npm run sql` 을 돌립니다
 - `npm run build` 앞에서도 자동으로 돌아, 배포에 낡은 내용이 실릴 수 없습니다
 - `supabase/fix-guest-uploads.sql`, `supabase/guest-cards.sql`, `supabase/guest-card-delete.sql`,
-  `supabase/save-board.sql`, `lib/generated-sql.ts` 는 모두 생성물이니 직접 고치지 마세요
+  `supabase/save-board.sql`, `supabase/surveys.sql`, `lib/generated-sql.ts` 는 모두 생성물이니 직접 고치지 마세요
 
 ### 여러 사람이 동시에 올릴 때 카드를 잃지 않기 (`save_board`)
 

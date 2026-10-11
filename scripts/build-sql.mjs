@@ -93,11 +93,31 @@ from pg_proc p join pg_namespace n on n.oid = p.pronamespace
 where n.nspname = 'public' and p.proname = 'save_board';
 `;
 
+const surveys = `-- 설문 섹션의 응답을 받는 부분만 담은 스크립트입니다.
+-- Supabase 대시보드 > SQL Editor 에 통째로 붙여 넣고 Run 하세요. 여러 번 실행해도 안전합니다.
+-- schema.sql 전체를 실행해도 같은 내용이 들어갑니다.
+--
+-- 응답은 공유 링크로 읽히지 않도록 보드 데이터 밖의 survey_responses 표에 따로 두고,
+-- 보드 주인만 읽고 지울 수 있습니다. 실행하기 전에는 공유받은 사람이 설문에 응답할 수 없습니다.
+
+${section("create or replace function public.guest_edit_hash", "$$;")}
+
+${section("create table if not exists public.survey_responses", "grant execute on function public.submit_survey_response")}
+
+-- 확인용. survey_responses 표와 submit_survey_response 함수가 보이면 정상입니다.
+select 'survey_responses' as 이름, count(*)::text as 응답수 from public.survey_responses
+union all
+select p.proname, pg_get_function_identity_arguments(p.oid)
+from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+where n.nspname = 'public' and p.proname = 'submit_survey_response';
+`;
+
 const files = {
   "supabase/fix-guest-uploads.sql": uploads,
   "supabase/guest-cards.sql": cards,
   "supabase/guest-card-delete.sql": deleteOnly,
   "supabase/save-board.sql": save,
+  "supabase/surveys.sql": surveys,
 };
 
 for (const [path, body] of Object.entries(files)) {
@@ -116,6 +136,8 @@ export const GUEST_CARDS_SQL = ${quote(cards)};
 export const GUEST_CARD_DELETE_SQL = ${quote(deleteOnly)};
 
 export const SAVE_BOARD_SQL = ${quote(save)};
+
+export const SURVEYS_SQL = ${quote(surveys)};
 `;
 
 mkdirSync(join(root, "lib"), { recursive: true });

@@ -13,6 +13,14 @@ export function isMissingFunction(error: RpcError | null | undefined): boolean {
   return error.code === "PGRST202" || (error.message ?? "").includes("Could not find the function");
 }
 
+// 표가 아직 없을 때 나는 오류인지(설문 응답 표 survey_responses 를 만들기 전). PostgREST 는 버전에 따라
+// PGRST205 를 주거나 PostgreSQL 의 42P01 을 그대로 넘깁니다.
+export function isMissingTable(error: RpcError | null | undefined): boolean {
+  if (!error) return false;
+  const message = error.message ?? "";
+  return error.code === "PGRST205" || error.code === "42P01" || message.includes("Could not find the table") || /relation .* does not exist/.test(message);
+}
+
 // 손님 기능 중 데이터베이스에 갖춰진 것들.
 export interface GuestFunctions {
   post: boolean;
@@ -21,6 +29,8 @@ export interface GuestFunctions {
   upload: boolean;
   // 주인 저장을 서버에서 합치는 save_board. 없으면 손님이 몰릴 때 카드를 잃을 수 있습니다.
   save: boolean;
+  // 설문 응답을 받는 submit_survey_response 와 survey_responses 표.
+  survey: boolean;
 }
 
 // 화면에 보여 줄 "빠진 기능" 이름들. 갖춰졌으면 빈 배열입니다.
@@ -32,12 +42,13 @@ export function missingGuestFeatures(found: GuestFunctions | null): string[] {
     !found.remove && "글 삭제",
     !found.upload && "파일 업로드",
     !found.save && "동시 저장 보호",
+    !found.survey && "설문 응답",
   ].filter((item): item is string => Boolean(item));
 }
 
 // 빠진 것을 메우는 데 필요한 SQL 조각들. 실제 내용은 lib/generated-sql.ts 에 있고, 여기서는
 // 어느 것들을 이 순서로 이어 붙일지만 고릅니다. 갖춰졌으면 빈 배열입니다.
-export type SqlPart = "uploads" | "cards" | "delete" | "save";
+export type SqlPart = "uploads" | "cards" | "delete" | "save" | "survey";
 
 export function sqlPartsFor(found: GuestFunctions | null): SqlPart[] {
   if (!found) return [];
@@ -47,5 +58,6 @@ export function sqlPartsFor(found: GuestFunctions | null): SqlPart[] {
   if (!found.post || !found.edit) parts.push("cards");
   else if (!found.remove) parts.push("delete");
   if (!found.save) parts.push("save");
+  if (!found.survey) parts.push("survey");
   return parts;
 }

@@ -83,7 +83,43 @@ export interface BoardColumn {
   // 질문 섹션이면 여기에 질문이 들어갑니다. 값이 있으면 칼럼 맨 위에 질문이 고정되고,
   // 그 칼럼에서 만드는 카드는 그 질문에 대한 답이 됩니다. 비어 있으면 보통 칼럼입니다.
   question?: string;
+  // 설문 섹션이면 여기에 설문이 들어갑니다. 질문 섹션과는 함께 쓰지 않습니다. lib/survey.ts 참고.
+  survey?: ColumnSurvey;
   cards: BoardCard[];
+}
+
+export type SurveyQuestionType = "single" | "multiple" | "text";
+
+export interface SurveyOption {
+  id: string;
+  label: string;
+}
+
+export interface SurveyQuestion {
+  id: string;
+  type: SurveyQuestionType;
+  title: string;
+  // 객관식(single, multiple)의 보기. 단답형(text)에서는 비어 있습니다.
+  options: SurveyOption[];
+  required?: boolean;
+}
+
+export interface ColumnSurvey {
+  description?: string;
+  questions: SurveyQuestion[];
+  // 응답 마감. true 면 공유받은 사람이 더 응답할 수 없습니다.
+  closed?: boolean;
+}
+
+// 응답 하나. 질문 ID → 고른 보기 ID(single), 보기 ID 목록(multiple), 글(text).
+export type SurveyAnswers = Record<string, string | string[]>;
+
+export interface SurveyResponse {
+  id: string;
+  columnId: string;
+  answers: SurveyAnswers;
+  createdAt: number;
+  updatedAt: number;
 }
 
 // 질문 섹션이면 다듬은 질문, 아니면 빈 문자열. 질문 섹션인지 판별할 때도 이 값을 씁니다.

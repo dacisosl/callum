@@ -35,6 +35,7 @@ import {
   Maximize2,
   MessageCircle,
   MessageCircleQuestion,
+  ClipboardList,
   MoreHorizontal,
   Palette,
   Play,
@@ -88,6 +89,8 @@ import { Switch } from "@/components/ui/switch";
 import { Toaster } from "@/components/ui/sonner";
 import { Checkbox } from "@/components/ui/checkbox";
 import { BoardHome } from "./board-home";
+import { SurveyAnswerDialog, SurveyEditorDialog, SurveyPanel, SurveyResultsDialog } from "./survey-ui";
+import { cleanSurvey, columnSurvey } from "@/lib/survey";
 import { cloneStarterBoard } from "@/lib/demo-data";
 import { supabaseConfigured } from "@/lib/supabase-config";
 import { publicSiteOrigin, shareLink } from "@/lib/site-url";
@@ -108,7 +111,10 @@ import {
   type CardComment,
   type CardDraft,
   type CardTone,
+  type ColumnSurvey,
   type LinkPreviewData,
+  type SurveyAnswers,
+  type SurveyResponse,
   type UsageSnapshot,
 } from "@/lib/board-types";
 
@@ -139,6 +145,31 @@ function rememberCardEditKey(cardId: string, key: string) {
 
 function makeEditKey() {
   try { return crypto.randomUUID() + crypto.randomUUID(); } catch { return `${makeId("key")}-${Math.random().toString(36).slice(2)}`; }
+}
+
+// 설문에 응답한 기록. 익명이라 서버는 누가 냈는지 모르고, 이 브라우저만 "보드:칼럼" 별로 응답 ID 와 열쇠,
+// 고칠 때 다시 채워 줄 답을 기억합니다. 브라우저 데이터를 지우면 새 응답으로 다시 낼 수 있습니다.
+const SURVEY_KEY_STORE = "pillar-survey-keys-v1";
+type MySurveyResponse = { id: string; key: string; answers: SurveyAnswers };
+
+function readSurveyKeys(): Record<string, MySurveyResponse> {
+  try { return JSON.parse(localStorage.getItem(SURVEY_KEY_STORE) ?? "{}") as Record<string, MySurveyResponse>; } catch { return {}; }
+}
+
+function rememberSurveyResponse(boardId: string, columnId: string, entry: MySurveyResponse) {
+  try { localStorage.setItem(SURVEY_KEY_STORE, JSON.stringify({ ...readSurveyKeys(), [`${boardId}:${columnId}`]: entry })); } catch { /* 기억하지 못해도 응답은 저장됩니다. */ }
+}
+
+// 로컬 데모 모드의 설문 응답. 서버가 없으므로 이 브라우저에 모아 둡니다.
+const LOCAL_SURVEY_KEY = "pillar-survey-responses-v1";
+type LocalSurveyResponse = SurveyResponse & { boardId: string };
+
+function readLocalSurveyResponses(): LocalSurveyResponse[] {
+  try { return JSON.parse(localStorage.getItem(LOCAL_SURVEY_KEY) ?? "[]") as LocalSurveyResponse[]; } catch { return []; }
+}
+
+function writeLocalSurveyResponses(list: LocalSurveyResponse[]) {
+  try { localStorage.setItem(LOCAL_SURVEY_KEY, JSON.stringify(list)); } catch { /* 데모라 저장 못 해도 넘어갑니다. */ }
 }
 // 파일당 상한. supabase/schema.sql 의 버킷 file_size_limit 과 같은 값이어야 합니다.
 const MAX_CLOUD_FILE = 30 * 1024 * 1024;
@@ -807,7 +838,7 @@ function SortableCard({ card, columnId, readOnly, commentSummary, commentsEnable
   );
 }
 
-function SortableColumn({ column, readOnly, canAdd, queryText, commentSummaries, commentsEnabled, ownerName, onAddCard, onOpenCard, onEditCard, onRename, onRecolor, onDuplicate, onDelete, onToggle, onEditQuestion, onDuplicateCard, onDeleteCard }: {
+function SortableColumn({ column, readOnly, canAdd, queryText, commentSummaries, commentsEnabled, ownerName, surveyCount, surveyUnavailable, surveyAnswered, onAddCard, onOpenCard, onEditCard, onRename, onRecolor, onDuplicate, onDelete, onToggle, onEditQuestion, onEditSurvey, onAnswerSurvey, onSurveyResults, onDuplicateCard, onDeleteCard }: {
   column: BoardColumn;
   readOnly: boolean;
   canAdd: boolean;
@@ -815,6 +846,10 @@ function SortableColumn({ column, readOnly, canAdd, queryText, commentSummaries,
   commentSummaries: Record<string, CommentSummary>;
   commentsEnabled: boolean;
   ownerName?: string;
+  // 설문 섹션: 주인에게 보일 응답 수(아직 모르면 null), 응답 표가 없는지, 공유받은 사람이 이미 응답했는지.
+  surveyCount: number | null;
+  surveyUnavailable: boolean;
+  surveyAnswered: boolean;
   onAddCard: () => void;
   onOpenCard: (card: BoardCard) => void;
   onEditCard: (card: BoardCard) => void;
@@ -824,6 +859,9 @@ function SortableColumn({ column, readOnly, canAdd, queryText, commentSummaries,
   onDelete: () => void;
   onToggle: () => void;
   onEditQuestion: () => void;
+  onEditSurvey: () => void;
+  onAnswerSurvey: () => void;
+  onSurveyResults: () => void;
   onDuplicateCard: (card: BoardCard) => void;
   onDeleteCard: (card: BoardCard) => void;
 }) {
@@ -834,15 +872,16 @@ function SortableColumn({ column, readOnly, canAdd, queryText, commentSummaries,
   const style = { transform: CSS.Transform.toString(transform), transition, "--column-hue": hue } as CSSProperties;
   // 질문 섹션이면 질문이 칼럼 맨 위에 고정되고, 카드는 "답변"이라는 말로 안내합니다.
   const question = columnQuestion(column);
+  const survey = columnSurvey(column);
   const [questionOpen, setQuestionOpen] = useState(false);
   // "카드가" / "답변이" — 받침에 따라 조사가 달라 통째로 둡니다.
   const itemSubject = question ? "답변이" : "카드가";
 
   return (
-    <article ref={setNodeRef} id={`column-${column.id}`} className={`column${question ? " is-question" : ""}${column.collapsed ? " is-collapsed" : ""}${isDragging ? " is-dragging" : ""}`} style={style}>
+    <article ref={setNodeRef} id={`column-${column.id}`} className={`column${question ? " is-question" : ""}${survey ? " is-survey" : ""}${column.collapsed ? " is-collapsed" : ""}${isDragging ? " is-dragging" : ""}`} style={style}>
       <header className="column-header">
         {!readOnly && <button className="column-handle" aria-label={`${column.title} 칼럼 이동`} {...attributes} {...listeners}><GripVertical aria-hidden="true" /></button>}
-        <button className="column-title" onClick={onToggle} aria-expanded={!column.collapsed}>{question && <MessageCircleQuestion className="column-question-mark" aria-label="질문 섹션" />}<strong>{column.title}</strong><span>{column.cards.length}</span></button>
+        <button className="column-title" onClick={onToggle} aria-expanded={!column.collapsed}>{question && <MessageCircleQuestion className="column-question-mark" aria-label="질문 섹션" />}{survey && <ClipboardList className="column-question-mark" aria-label="설문 섹션" />}<strong>{column.title}</strong><span>{column.cards.length}</span></button>
         <button className="quiet-button" onClick={onToggle} aria-label={column.collapsed ? "칼럼 펼치기" : "칼럼 접기"}>{column.collapsed ? <PanelTopOpen aria-hidden="true" /> : <PanelTopClose aria-hidden="true" />}</button>
         {!readOnly && (
           <DropdownMenu>
@@ -851,6 +890,8 @@ function SortableColumn({ column, readOnly, canAdd, queryText, commentSummaries,
               <DropdownMenuItem onClick={onRename}><Pencil />이름 변경</DropdownMenuItem>
               <DropdownMenuItem onClick={onDuplicate}><Copy />칼럼 복제</DropdownMenuItem>
               <DropdownMenuItem onClick={onEditQuestion}><MessageCircleQuestion />{question ? "질문 편집" : "질문 섹션으로 만들기"}</DropdownMenuItem>
+              <DropdownMenuItem onClick={onEditSurvey}><ClipboardList />{survey ? "설문 편집" : "설문 섹션으로 만들기"}</DropdownMenuItem>
+              {survey && <DropdownMenuItem onClick={onSurveyResults}><ClipboardList />설문 결과 보기</DropdownMenuItem>}
               <div className="menu-swatches" role="group" aria-label="칼럼 색">
                 <span className="menu-swatches-label"><Palette aria-hidden="true" />색</span>
                 <div>
@@ -875,14 +916,15 @@ function SortableColumn({ column, readOnly, canAdd, queryText, commentSummaries,
               {(question.length > 90 || question.split("\n").length > 3) && <button type="button" className="column-question-toggle" onClick={() => setQuestionOpen((open) => !open)} aria-expanded={questionOpen}>{questionOpen ? "접기" : "더 보기"}</button>}
             </div>
           )}
-          {canAdd && (question
+          {survey && <SurveyPanel survey={survey} owner={!readOnly} responseCount={surveyCount} responsesUnavailable={surveyUnavailable} answered={surveyAnswered} onAnswer={onAnswerSurvey} onResults={onSurveyResults} onEdit={onEditSurvey} />}
+          {canAdd && !survey && (question
             ? <button className="add-card-button is-answer" onClick={onAddCard} aria-label={`${column.title}에 답변 쓰기`}><Plus aria-hidden="true" />답변 쓰기</button>
             : <button className="add-card-button" onClick={onAddCard} aria-label={`${column.title}에 카드 추가`} title="카드 추가"><Plus aria-hidden="true" /></button>)}
           <SortableContext items={filteredCards.map((card) => card.id)} strategy={verticalListSortingStrategy}>
             <div className="card-list">
               {filteredCards.map((card) => <SortableCard key={card.id} card={card} columnId={column.id} readOnly={readOnly} commentSummary={commentSummaries[card.id]} commentsEnabled={commentsEnabled} ownerName={ownerName} onOpen={() => onOpenCard(card)} onEdit={() => onEditCard(card)} onDuplicate={() => onDuplicateCard(card)} onDelete={() => onDeleteCard(card)} />)}
               {needle && filteredCards.length === 0 && <p className="column-empty">일치하는 {itemSubject} 없습니다.</p>}
-              {!needle && filteredCards.length === 0 && <p className="column-empty">{!canAdd ? `${itemSubject} 없습니다.` : question ? "위의 답변 쓰기를 눌러 첫 답변을 남겨 보세요." : "위의 + 를 눌러 첫 카드를 추가하세요."}</p>}
+              {!needle && !survey && filteredCards.length === 0 && <p className="column-empty">{!canAdd ? `${itemSubject} 없습니다.` : question ? "위의 답변 쓰기를 눌러 첫 답변을 남겨 보세요." : "위의 + 를 눌러 첫 카드를 추가하세요."}</p>}
             </div>
           </SortableContext>
         </>
@@ -982,6 +1024,19 @@ export function BoardApp() {
 
   // 질문 설정·편집 대화상자. 질문은 여러 줄일 수 있어 이름 변경과 달리 별도 창을 씁니다.
   const [questionTarget, setQuestionTarget] = useState<{ columnId: string; columnTitle: string; text: string; answers: number } | null>(null);
+  // 설문 섹션. 편집 창은 열 때마다 새로 그리도록 key 를 둡니다.
+  const [surveyEditTarget, setSurveyEditTarget] = useState<{ columnId: string; columnTitle: string; survey: ColumnSurvey; existing: boolean; key: number } | null>(null);
+  const [surveyAnswerTarget, setSurveyAnswerTarget] = useState<{ columnId: string; key: number } | null>(null);
+  const [surveyResultsTarget, setSurveyResultsTarget] = useState<string | null>(null);
+  const [surveySubmitting, setSurveySubmitting] = useState(false);
+  // 주인 화면: 지금 보드의 설문 응답. null 이면 아직 모름. surveyUnavailable 은 응답 표가 없는(SQL 을 안 돌린) 상태.
+  const [surveyResponses, setSurveyResponses] = useState<SurveyResponse[] | null>(null);
+  const [surveyUnavailable, setSurveyUnavailable] = useState(false);
+  const [surveyLoading, setSurveyLoading] = useState(false);
+  // 공유받은 사람 화면: 이 브라우저가 이미 응답한 설문들. 응답할 때마다 다시 읽습니다.
+  const [mySurveys, setMySurveys] = useState<Record<string, MySurveyResponse>>({});
+  // 설문 창을 열 때마다 새로 그리도록 붙이는 번호.
+  const surveyDialogSeq = useRef(0);
   const [addingColumn, setAddingColumn] = useState(false);
   const [newColumnTitle, setNewColumnTitle] = useState("");
   const [newColumnQuestion, setNewColumnQuestion] = useState("");
@@ -1232,6 +1287,12 @@ export function BoardApp() {
       const backend = await import("@/lib/supabase-client");
       const fresh = live.token ? await backend.loadSharedBoard(live.token) : await backend.loadBoardById(live.boardId);
       if (fresh) setBoards((current) => current.map((board) => board.id === fresh.id ? fresh : board));
+      // 주인 화면에서는 설문 응답 수도 함께 맞춥니다. 손님이 응답하면 알림이 와서 여기로 들어옵니다.
+      if (!live.token && fresh?.columns.some((column) => columnSurvey(column))) {
+        const list = await backend.loadSurveyResponses(fresh.id);
+        setSurveyResponses(list ?? []);
+        setSurveyUnavailable(list === null);
+      }
       if (live.comments) {
         const fetched = live.token ? await backend.loadSharedComments(live.token) : await backend.loadComments(live.boardId);
         setComments(fetched);
@@ -1252,6 +1313,39 @@ export function BoardApp() {
 
   const refreshBoardRef = useRef(refreshBoard);
   useEffect(() => { refreshBoardRef.current = refreshBoard; }, [refreshBoard]);
+
+  // 주인 화면: 설문 응답을 읽습니다. 데모 모드는 이 브라우저에 모아 둔 응답을 씁니다.
+  const loadSurveys = useCallback(async (boardId: string) => {
+    if (!supabaseConfigured) {
+      setSurveyResponses(readLocalSurveyResponses().filter((item) => item.boardId === boardId));
+      setSurveyUnavailable(false);
+      return;
+    }
+    setSurveyLoading(true);
+    try {
+      const list = await (await import("@/lib/supabase-client")).loadSurveyResponses(boardId);
+      setSurveyResponses(list ?? []);
+      setSurveyUnavailable(list === null);
+    } catch (error) {
+      toast.error(error instanceof Error && error.message ? error.message : "설문 응답을 읽지 못했습니다.");
+    } finally {
+      setSurveyLoading(false);
+    }
+  }, []);
+
+  const surveyBoardId = activeBoard && !readOnly && activeBoard.columns.some((column) => columnSurvey(column)) ? activeBoard.id : "";
+  useEffect(() => {
+    if (!surveyBoardId) return;
+    const timer = window.setTimeout(() => void loadSurveys(surveyBoardId), 0);
+    return () => window.clearTimeout(timer);
+  }, [loadSurveys, surveyBoardId]);
+
+  // 공유받은 사람 화면: 이 브라우저가 낸 응답을 읽어 "응답했습니다" 를 보여 줍니다.
+  useEffect(() => {
+    if (!readOnly) return;
+    const timer = window.setTimeout(() => setMySurveys(readSurveyKeys()), 0);
+    return () => window.clearTimeout(timer);
+  }, [readOnly]);
 
   // 같은 보드를 보는 사람들이 서로 "바뀌었다"고 알리는 통로. 알림을 받으면 바로 다시 읽습니다.
   const boardChannel = useRef<{ notify: () => void; close: () => void } | null>(null);
@@ -1783,7 +1877,12 @@ export function BoardApp() {
     const previous = activeBoard ? structuredClone(activeBoard) : null;
     const had = Boolean(activeBoard?.columns.find((column) => column.id === questionTarget.columnId)?.question?.trim());
     updateActiveBoard((board) => ({ ...board, columns: board.columns.map((column) => column.id === questionTarget.columnId
-      ? { ...column, question: question || undefined, collapsed: question ? false : column.collapsed }
+      ? (() => {
+        const next = { ...column, question: question || undefined, collapsed: question ? false : column.collapsed };
+        // 질문 섹션과 설문은 함께 쓰지 않습니다. 질문을 넣으면 설문은 내려놓습니다(응답은 남습니다).
+        if (question) delete next.survey;
+        return next;
+      })()
       : column) }));
     setQuestionTarget(null);
     if (!question && had) {
@@ -1792,6 +1891,76 @@ export function BoardApp() {
       return;
     }
     if (question) toast.success(had ? "질문을 바꿨습니다." : "질문 섹션으로 만들었습니다.");
+  }
+
+  function openSurveyEditor(column: BoardColumn) {
+    const current = columnSurvey(column);
+    setSurveyEditTarget({ columnId: column.id, columnTitle: column.title, survey: current ? structuredClone(current) : { questions: [] }, existing: Boolean(current), key: ++surveyDialogSeq.current });
+  }
+
+  function applySurvey(draft: ColumnSurvey | null) {
+    if (!surveyEditTarget) return;
+    const target = surveyEditTarget;
+    const survey = draft ? cleanSurvey(draft) : null;
+    if (draft && !survey?.questions.length) { toast.error("질문 제목과 보기를 채운 질문이 하나 이상 있어야 합니다."); return; }
+    const previous = activeBoard ? structuredClone(activeBoard) : null;
+    const hadQuestion = Boolean(activeBoard?.columns.find((column) => column.id === target.columnId)?.question?.trim());
+    // 설문과 질문 섹션은 함께 쓰지 않습니다. 설문으로 만들면 질문은 내려놓습니다.
+    updateActiveBoard((board) => ({ ...board, columns: board.columns.map((column) => {
+      if (column.id !== target.columnId) return column;
+      if (!survey) { const { survey: _dropped, ...rest } = column; void _dropped; return rest; }
+      const { question: _question, ...rest } = column; void _question;
+      return { ...rest, survey, collapsed: false };
+    }) }));
+    setSurveyEditTarget(null);
+    if (!survey) {
+      const note = "설문을 해제했습니다. 받은 응답은 지워지지 않고, 다시 설문으로 만들면 이어서 볼 수 있습니다.";
+      if (previous) pushUndo(previous, note); else toast.success(note);
+      return;
+    }
+    toast.success(target.existing ? "설문을 저장했습니다." : hadQuestion ? "질문 섹션을 설문 섹션으로 바꿨습니다." : "설문 섹션으로 만들었습니다. 보드를 공유하면 링크로 응답을 받습니다.");
+  }
+
+  async function submitSurvey(columnId: string, answers: SurveyAnswers) {
+    if (!activeBoard) return;
+    const storeKey = `${activeBoard.id}:${columnId}`;
+    const mine = readSurveyKeys()[storeKey];
+    const entry: MySurveyResponse = { id: mine?.id ?? makeId("resp"), key: mine?.key ?? makeEditKey(), answers };
+    setSurveySubmitting(true);
+    try {
+      if (supabaseConfigured && sharedToken) {
+        const saved = await (await import("@/lib/supabase-client")).submitSurveyResponse(sharedToken, columnId, entry.id, answers, entry.key);
+        entry.answers = saved.answers;
+        boardChannel.current?.notify();
+      } else {
+        const now = Date.now();
+        const list = readLocalSurveyResponses();
+        const existing = list.find((item) => item.id === entry.id);
+        writeLocalSurveyResponses(existing
+          ? list.map((item) => item.id === entry.id ? { ...item, answers, updatedAt: now } : item)
+          : [...list, { id: entry.id, boardId: activeBoard.id, columnId, answers, createdAt: now, updatedAt: now }]);
+      }
+      rememberSurveyResponse(activeBoard.id, columnId, entry);
+      setMySurveys(readSurveyKeys());
+      setSurveyAnswerTarget(null);
+      toast.success(mine ? "응답을 고쳤습니다." : "응답했습니다. 참여해 주셔서 고맙습니다!");
+    } catch (error) {
+      toast.error(error instanceof Error && error.message ? error.message : "응답을 보내지 못했습니다.");
+    } finally {
+      setSurveySubmitting(false);
+    }
+  }
+
+  async function clearSurvey(columnId: string) {
+    if (!activeBoard || !window.confirm("이 설문의 응답을 모두 지울까요? 되돌릴 수 없습니다.")) return;
+    try {
+      if (supabaseConfigured) await (await import("@/lib/supabase-client")).clearSurveyResponses(activeBoard.id, columnId);
+      else writeLocalSurveyResponses(readLocalSurveyResponses().filter((item) => !(item.boardId === activeBoard.id && item.columnId === columnId)));
+      await loadSurveys(activeBoard.id);
+      toast.success("응답을 모두 지웠습니다.");
+    } catch (error) {
+      toast.error(error instanceof Error && error.message ? error.message : "응답을 지우지 못했습니다.");
+    }
   }
 
   function addColumn() {
@@ -1909,7 +2078,7 @@ export function BoardApp() {
     setCopyingSql(true);
     try {
       const sql = await import("@/lib/generated-sql");
-      const text = parts.map((part) => ({ uploads: sql.GUEST_UPLOADS_SQL, cards: sql.GUEST_CARDS_SQL, delete: sql.GUEST_CARD_DELETE_SQL, save: sql.SAVE_BOARD_SQL })[part]).join("\n\n");
+      const text = parts.map((part) => ({ uploads: sql.GUEST_UPLOADS_SQL, cards: sql.GUEST_CARDS_SQL, delete: sql.GUEST_CARD_DELETE_SQL, save: sql.SAVE_BOARD_SQL, survey: sql.SURVEYS_SQL })[part]).join("\n\n");
       await navigator.clipboard.writeText(text);
       toast.success("SQL을 복사했습니다. Supabase SQL Editor를 비우고 붙여 넣은 뒤 Run 하세요.");
     } catch {
@@ -2038,7 +2207,7 @@ export function BoardApp() {
       <DndContext sensors={sensors} collisionDetection={boardCollision} onDragStart={handleDragStart} onDragOver={handleDragOver} onDragEnd={handleDragEnd} onDragCancel={handleDragCancel}>
         <SortableContext items={activeBoard.columns.map((column) => column.id)}>
           <section ref={boardRef} className="board" aria-label={`${activeBoard.title} 보드`} onScroll={handleBoardScroll}>
-            {activeBoard.columns.map((column) => <SortableColumn key={column.id} column={column} readOnly={readOnly} canAdd={!readOnly || guestPosting} queryText={queryText} commentSummaries={commentSummaries} commentsEnabled={commentsEnabled} ownerName={ownerName} onAddCard={() => openNewCard(column.id)} onOpenCard={openViewer} onEditCard={(card) => openCard(column.id, card)} onRename={() => {
+            {activeBoard.columns.map((column) => <SortableColumn key={column.id} column={column} readOnly={readOnly} canAdd={!readOnly || guestPosting} queryText={queryText} commentSummaries={commentSummaries} commentsEnabled={commentsEnabled} ownerName={ownerName} surveyCount={surveyResponses ? surveyResponses.filter((item) => item.columnId === column.id).length : null} surveyUnavailable={surveyUnavailable} surveyAnswered={Boolean(activeBoard && mySurveys[`${activeBoard.id}:${column.id}`])} onEditSurvey={() => openSurveyEditor(column)} onAnswerSurvey={() => setSurveyAnswerTarget({ columnId: column.id, key: ++surveyDialogSeq.current })} onSurveyResults={() => { setSurveyResultsTarget(column.id); if (activeBoard) void loadSurveys(activeBoard.id); }} onAddCard={() => openNewCard(column.id)} onOpenCard={openViewer} onEditCard={(card) => openCard(column.id, card)} onRename={() => {
               const title = window.prompt("새 칼럼 이름", column.title)?.trim();
               if (title) updateActiveBoard((board) => ({ ...board, columns: board.columns.map((item) => item.id === column.id ? { ...item, title } : item) }));
             }} onRecolor={(hue) => updateActiveBoard((board) => ({ ...board, columns: board.columns.map((item) => item.id === column.id ? { ...item, hue } : item) }))} onDuplicate={() => duplicateColumn(column.id)} onDelete={() => setDeleteTarget({ kind: "column", id: column.id, title: column.title })} onToggle={() => updateActiveBoard((board) => ({ ...board, columns: board.columns.map((item) => item.id === column.id ? { ...item, collapsed: !item.collapsed } : item) }))} onEditQuestion={() => openQuestionEditor(column)} onDuplicateCard={(card) => duplicateCard(column.id, card)} onDeleteCard={(card) => setDeleteTarget({ kind: "card", id: card.id, columnId: column.id, title: card.title })} />)}
@@ -2187,6 +2356,20 @@ export function BoardApp() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {surveyEditTarget && <SurveyEditorDialog key={surveyEditTarget.key} open columnTitle={surveyEditTarget.columnTitle} initial={surveyEditTarget.survey} existing={surveyEditTarget.existing} responseCount={surveyResponses?.filter((item) => item.columnId === surveyEditTarget.columnId).length ?? 0} onClose={() => setSurveyEditTarget(null)} onSave={(draft) => applySurvey(draft)} onRemove={() => applySurvey(null)} />}
+      {(() => {
+        const column = surveyAnswerTarget && activeBoard?.columns.find((item) => item.id === surveyAnswerTarget.columnId);
+        const survey = columnSurvey(column);
+        if (!surveyAnswerTarget || !column || !survey) return null;
+        return <SurveyAnswerDialog key={surveyAnswerTarget.key} open columnTitle={column.title} survey={survey} initial={mySurveys[`${activeBoard?.id}:${column.id}`]?.answers ?? {}} submitting={surveySubmitting} onClose={() => setSurveyAnswerTarget(null)} onSubmit={(answers) => void submitSurvey(column.id, answers)} />;
+      })()}
+      {(() => {
+        const column = surveyResultsTarget ? activeBoard?.columns.find((item) => item.id === surveyResultsTarget) : null;
+        const survey = columnSurvey(column);
+        if (!column || !survey) return null;
+        return <SurveyResultsDialog open columnTitle={column.title} survey={survey} responses={(surveyResponses ?? []).filter((item) => item.columnId === column.id)} loading={surveyLoading} unavailable={surveyUnavailable} onClose={() => setSurveyResultsTarget(null)} onRefresh={() => activeBoard && void loadSurveys(activeBoard.id)} onClear={() => void clearSurvey(column.id)} />;
+      })()}
 
       <Dialog open={Boolean(questionTarget)} onOpenChange={(open) => { if (!open) setQuestionTarget(null); }}>
         <DialogContent className="question-dialog">

@@ -793,3 +793,105 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   .home-head { padding-top: 12px; }
   .home-title strong { font-size: 20px; }
 }
+
+/* 설문 섹션: 칼럼 안의 패널 */
+.survey-panel { display: grid; gap: 7px; margin: 8px 0 0; padding: 11px 12px; border: 1px solid hsl(var(--column-hue) 45% 78%); border-left: 3px solid hsl(var(--column-hue) 50% 48%); border-radius: 12px; background: hsl(var(--column-hue) 68% 97%); }
+.survey-panel-label { display: inline-flex; align-items: center; gap: 5px; color: hsl(var(--column-hue) 45% 34%); font-size: 11px; font-weight: 800; letter-spacing: .02em; }
+.survey-panel-label svg { width: 13px; height: 13px; }
+.survey-panel-label em { display: inline-flex; align-items: center; gap: 3px; margin-left: 4px; padding: 1px 7px; border-radius: 999px; background: #eef2f5; color: #5a6871; font-style: normal; font-weight: 750; }
+.survey-panel-label em svg { width: 11px; height: 11px; }
+.survey-panel p { margin: 0; color: #2b3841; font-size: 13px; font-weight: 600; line-height: 1.5; white-space: pre-line; overflow-wrap: anywhere; }
+.survey-panel-count { color: #55636d; font-size: 12.5px; }
+.survey-panel-count b { color: hsl(var(--column-hue) 50% 32%); font-size: 15px; }
+.survey-panel-actions { display: flex; gap: 6px; }
+.survey-panel-actions button, .survey-panel-join { display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-height: 36px; padding: 0 12px; font-size: 13px; }
+.survey-panel-actions .primary-button { flex: 1; }
+.survey-panel-actions svg, .survey-panel-join svg { width: 15px; }
+.survey-panel-join { width: 100%; }
+.survey-panel-done { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.survey-panel-done span { display: inline-flex; align-items: center; gap: 5px; color: #1f7a4c; font-size: 13px; font-weight: 750; }
+.survey-panel-done svg { width: 16px; }
+.survey-panel-done .text-button { font-size: 12.5px; }
+
+/* 설문 창 공통 */
+.survey-dialog { max-width: min(640px, calc(100vw - 24px)); max-height: 90vh; display: flex; flex-direction: column; padding: 0; gap: 0; overflow: hidden; }
+.survey-dialog > [data-slot="dialog-header"] { padding: 22px 22px 8px; }
+.survey-dialog .survey-body { min-height: 0; flex: 1; display: grid; align-content: start; gap: 12px; padding: 6px 22px 14px; overflow-y: auto; }
+.survey-footer { padding: 12px 22px 16px; border-top: 1px solid #eef2f5; }
+.survey-remove { margin-right: auto; color: #b4453c; }
+.survey-field { display: grid; gap: 5px; color: #44525c; font-size: 12px; font-weight: 700; }
+.survey-field textarea, .survey-question-answer textarea { padding: 9px 11px; border: 1px solid var(--border); border-radius: 10px; background: white; color: #1d2830; font: inherit; font-size: 14px; line-height: 1.5; resize: vertical; }
+.survey-note { margin: 0; padding: 9px 11px; border-radius: 10px; background: #f1f4f7; color: #55636d; font-size: 12px; line-height: 1.5; }
+.survey-error { margin: 0; color: #b4453c; font-size: 12px; font-weight: 700; }
+.survey-empty { margin: 4px 0; color: #7a868e; font-size: 13px; }
+
+/* 설문 편집 */
+.survey-questions { margin: 0; padding: 0; display: grid; gap: 10px; list-style: none; }
+.survey-question-edit { display: grid; gap: 9px; padding: 12px; border: 1px solid var(--border); border-radius: 12px; background: #fbfcfd; }
+.survey-question-top { display: flex; align-items: center; gap: 8px; }
+.survey-question-no { width: 24px; height: 24px; display: grid; place-items: center; flex: none; border-radius: 999px; background: var(--primary); color: white; font-size: 12px; font-weight: 800; }
+.survey-question-top input { min-width: 0; flex: 1; height: 38px; padding: 0 11px; border: 1px solid var(--border); border-radius: 10px; background: white; color: #1d2830; font: inherit; font-size: 14px; font-weight: 650; }
+.survey-question-tools { display: flex; gap: 2px; }
+.survey-question-tools button, .survey-option-edit button { width: 30px; height: 30px; display: grid; place-items: center; border: 0; border-radius: 8px; background: transparent; color: #6b7881; cursor: pointer; }
+.survey-question-tools button:hover:not(:disabled), .survey-option-edit button:hover:not(:disabled) { background: #eef2f5; color: #25333c; }
+.survey-question-tools button:disabled, .survey-option-edit button:disabled { opacity: .35; cursor: default; }
+.survey-question-tools svg, .survey-option-edit svg { width: 15px; }
+.survey-type-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding-left: 32px; }
+.survey-type-row > button { min-height: 28px; padding: 0 11px; border: 1px solid var(--border); border-radius: 999px; background: white; color: #5b6870; font-size: 12.5px; font-weight: 700; cursor: pointer; }
+.survey-type-row > button.is-active { border-color: var(--primary); background: #e9f0ff; color: #0d47b5; }
+.survey-required { display: inline-flex; align-items: center; gap: 5px; margin-left: auto; color: #55636d; font-size: 12.5px; font-weight: 700; cursor: pointer; }
+.survey-text-hint { margin: 0; padding-left: 32px; color: #7a868e; font-size: 12px; }
+.survey-options-edit { display: grid; gap: 6px; padding-left: 32px; }
+.survey-option-edit { display: flex; align-items: center; gap: 8px; }
+.survey-option-edit input { min-width: 0; flex: 1; height: 34px; padding: 0 10px; border: 1px solid var(--border); border-radius: 9px; background: white; color: #1d2830; font: inherit; font-size: 13.5px; }
+.survey-mark { width: 15px; height: 15px; flex: none; border: 2px solid #aab7c0; background: white; }
+.survey-mark.is-radio { border-radius: 999px; }
+.survey-mark.is-check { border-radius: 4px; }
+.survey-add-option { justify-self: start; display: inline-flex; align-items: center; gap: 4px; font-size: 12.5px; }
+.survey-add-option svg, .survey-add-question svg { width: 14px; }
+.survey-add-question { display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-height: 38px; border-style: dashed; }
+.survey-closed-row { display: flex; align-items: flex-start; gap: 8px; padding: 10px 12px; border-radius: 10px; background: #f6f8fa; color: #55636d; font-size: 12.5px; line-height: 1.5; cursor: pointer; }
+.survey-closed-row input { margin-top: 3px; }
+.survey-closed-row b { color: #25333c; }
+
+/* 설문 응답 */
+.survey-question-answer { display: grid; gap: 8px; margin: 0; padding: 12px; border: 1px solid var(--border); border-radius: 12px; background: white; }
+.survey-question-answer.has-error { border-color: #e7a59f; background: #fff8f7; }
+.survey-question-title { color: #1d2830; font-size: 14.5px; font-weight: 750; line-height: 1.45; overflow-wrap: anywhere; }
+.survey-question-title > span { color: var(--primary); }
+.survey-question-title em { margin-left: 3px; color: #c4392f; font-style: normal; }
+.survey-question-title small { display: block; margin-top: 2px; color: #8a969e; font-size: 11.5px; font-weight: 650; }
+.survey-choices { display: grid; gap: 6px; }
+.survey-choice { display: flex; align-items: center; gap: 9px; min-height: 42px; padding: 0 12px; border: 1px solid var(--border); border-radius: 10px; background: #fbfcfd; color: #25333c; font-size: 14px; cursor: pointer; }
+.survey-choice:hover { border-color: #aebbc4; }
+.survey-choice.is-checked { border-color: var(--primary); background: #eef3fe; color: #0d47b5; font-weight: 700; }
+.survey-choice input { width: 17px; height: 17px; flex: none; accent-color: var(--primary); }
+.survey-choice span { min-width: 0; overflow-wrap: anywhere; }
+
+/* 설문 결과 */
+.survey-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 0 22px 8px; }
+.survey-toolbar button { display: inline-flex; align-items: center; gap: 5px; min-height: 34px; padding: 0 11px; font-size: 12.5px; }
+.survey-toolbar svg { width: 14px; }
+.survey-clear { margin-left: auto; color: #b4453c; }
+.survey-result { display: grid; gap: 8px; padding: 14px; border: 1px solid var(--border); border-radius: 12px; background: white; }
+.survey-result h3 { margin: 0; color: #1d2830; font-size: 15px; letter-spacing: -.01em; }
+.survey-result h3 span { color: var(--primary); }
+.survey-result-meta { margin: -4px 0 2px; color: #8a969e; font-size: 11.5px; }
+.survey-bars { margin: 0; padding: 0; display: grid; gap: 10px; list-style: none; }
+.survey-bar-label { display: flex; justify-content: space-between; gap: 10px; margin-bottom: 4px; color: #34424c; font-size: 13px; }
+.survey-bar-label span { min-width: 0; overflow-wrap: anywhere; }
+.survey-bar-label b { flex: none; color: #1d2830; font-size: 13px; }
+.survey-bar-label small { margin-left: 3px; color: #7a868e; font-weight: 650; }
+.survey-bar-track { height: 10px; border-radius: 999px; background: #e9eef3; overflow: hidden; }
+.survey-bar-track i { display: block; height: 100%; border-radius: 999px; background: var(--primary); transition: width 500ms cubic-bezier(.2,.8,.2,1); }
+.survey-texts { max-height: 260px; margin: 0; padding: 0; display: grid; gap: 6px; overflow-y: auto; list-style: none; }
+.survey-texts li { padding: 8px 10px; border-radius: 9px; background: #f4f7f9; color: #25333c; font-size: 13px; line-height: 1.5; white-space: pre-line; overflow-wrap: anywhere; }
+
+@media (max-width: 760px) {
+  .survey-dialog { max-height: 94vh; }
+  .survey-dialog > [data-slot="dialog-header"] { padding: 18px 16px 6px; }
+  .survey-dialog .survey-body { padding: 4px 14px 12px; }
+  .survey-footer, .survey-toolbar { padding-left: 14px; padding-right: 14px; }
+  .survey-type-row, .survey-options-edit, .survey-text-hint { padding-left: 0; }
+  .survey-clear { margin-left: 0; }
+}

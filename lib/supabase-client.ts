@@ -182,6 +182,14 @@ function safeFileKey(file: File, attachmentId: string) {
   return `${attachmentId}-${stem}${ext}`;
 }
 
+// 저장소에 보낼 파일. storage-js 는 File/Blob 을 받으면 contentType 옵션을 무시하고 파일 자체의 형식(file.type)으로
+// 보냅니다. 그래서 일반 파일(HTML 등)은 형식을 application/octet-stream 으로 바꾼 새 File 로 감싸 보냅니다.
+// 그래야 버킷이 받아 주고, 공개 주소에서도 웹 페이지로 실행되지 않습니다.
+function forUpload(file: File): File {
+  const type = uploadContentType(file);
+  return type === file.type ? file : new File([file], file.name, { type, lastModified: file.lastModified });
+}
+
 export async function uploadAttachment(
   file: File,
   ownerId: string,
@@ -190,7 +198,7 @@ export async function uploadAttachment(
 ): Promise<Attachment> {
   const storagePath = `${ownerId}/${boardId}/${safeFileKey(file, attachmentId)}`;
   const storage = supabase().storage.from(BUCKET);
-  const { error } = await storage.upload(storagePath, file, {
+  const { error } = await storage.upload(storagePath, forUpload(file), {
     contentType: uploadContentType(file),
     upsert: false,
   });
@@ -211,7 +219,7 @@ export async function uploadAttachment(
 export async function uploadGuestAttachment(file: File, boardId: string, attachmentId: string): Promise<Attachment> {
   const storagePath = `guest/${boardId}/${safeFileKey(file, attachmentId)}`;
   const storage = supabase().storage.from(BUCKET);
-  const { error } = await storage.upload(storagePath, file, { contentType: uploadContentType(file), upsert: false });
+  const { error } = await storage.upload(storagePath, forUpload(file), { contentType: uploadContentType(file), upsert: false });
   if (error) throw translate(error);
   return {
     id: attachmentId,

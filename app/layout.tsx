@@ -21,6 +21,11 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="ko">
+      <head>
+        {/* 한글 본문 글꼴. 받지 못하면 시스템 글꼴(맑은 고딕·애플 SD 고딕)로 그립니다. */}
+        <link rel="preconnect" href="https://cdn.jsdelivr.net" crossOrigin="anonymous" />
+        <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" />
+      </head>
       <body className="antialiased">{children}</body>
     </html>
   );

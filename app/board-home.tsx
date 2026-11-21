@@ -83,7 +83,7 @@ function formatUpdated(value: number) {
 // 한도 대비 사용 비율. 채움 색은 사용량 단계(정상 → 주의 → 위험)를 나타내고 빈 부분은 같은 파랑 계열의
 // 연한 단계입니다. 색만으로 뜻을 전하지 않도록 숫자와 이름을 함께 둡니다.
 const RING_COLORS = {
-  ok: { fill: "#155eef", track: "#dbe7fd" },
+  ok: { fill: "#2f2e2a", track: "#ecebe8" },
   warning: { fill: "#e08a00", track: "#fdebc8" },
   critical: { fill: "#d92d20", track: "#f9d5d1" },
 } as const;

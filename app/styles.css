@@ -1189,3 +1189,15 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 @media (max-width: 760px) {
   .column-title strong { font-size: 16.5px; }
 }
+
+/* 칼럼 제목 앞 색 점은 빼고, 제목 막대와 칼럼 판을 한 단계 더 옅게 */
+.column-title::before { content: none; display: none; }
+.column-header {
+  border-color: hsl(var(--column-hue) 40% 88%);
+  background: linear-gradient(180deg, hsl(var(--column-hue) 70% 96.5%) 0%, hsl(var(--column-hue) 60% 93.5%) 100%);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.8), 0 1px 2px hsl(var(--column-hue) 40% 40% / .06);
+}
+.column {
+  border-color: hsl(var(--column-hue) 38% 91%);
+  background: linear-gradient(180deg, hsl(var(--column-hue) 62% 98.3%) 0%, hsl(var(--column-hue) 52% 97.2%) 100%);
+}

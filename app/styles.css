@@ -1134,3 +1134,58 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 ::-webkit-scrollbar-thumb:hover { background-color: rgba(55,53,47,.32); }
 [data-slot="dialog-content"]:not(.viewer-dialog):not(.lightbox-dialog) { background: #ffffff; }
 .home-card:has(.home-badge) .home-card-head { padding-right: 112px; }
+
+/* ── 칼럼 색 살리기: 칼럼마다 연한 파스텔 판, 제목은 더 굵고 크게 ───────────────
+   칼럼 전체를 그 칼럼 색의 옅은 파스텔로 깔아 칼럼끼리 한눈에 구별되게 합니다.
+   제목 머리는 같은 색의 조금 진한 파스텔 + 광택, 제목 글자는 17px 굵게, 카드 제목(15px)·본문(13px)과 확실히 나눕니다. */
+.column {
+  padding: 7px 7px 2px;
+  border: 1px solid hsl(var(--column-hue) 38% 88%);
+  border-radius: 16px;
+  background: linear-gradient(180deg, hsl(var(--column-hue) 62% 97%) 0%, hsl(var(--column-hue) 52% 95.5%) 100%);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.9), 0 1px 2px rgba(15,15,15,.03);
+}
+.column.is-collapsed { padding-bottom: 7px; }
+.column-header {
+  min-height: 52px;
+  padding: 7px 6px 7px 8px;
+  border: 1px solid hsl(var(--column-hue) 40% 83%);
+  border-radius: 11px;
+  background: linear-gradient(180deg, hsl(var(--column-hue) 70% 93.5%) 0%, hsl(var(--column-hue) 58% 88.5%) 100%);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.75), 0 1px 2px hsl(var(--column-hue) 40% 40% / .10);
+  backdrop-filter: none;
+}
+.column-title { gap: 9px; }
+.column-title::before {
+  width: 10px; height: 10px;
+  background: linear-gradient(180deg, hsl(var(--column-hue) 62% 62%) 0%, hsl(var(--column-hue) 55% 46%) 100%);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.45), 0 0 0 3px hsl(var(--column-hue) 55% 50% / .18);
+}
+.column-title strong { color: hsl(var(--column-hue) 40% 18%); font-size: 17px; font-weight: 800; letter-spacing: -.03em; line-height: 1.25; }
+.column-title span { min-width: 24px; height: 22px; background: rgba(255,255,255,.7); color: hsl(var(--column-hue) 30% 34%); font-size: 12px; font-weight: 750; box-shadow: inset 0 0 0 1px hsl(var(--column-hue) 40% 80%); }
+.column-question-mark { color: hsl(var(--column-hue) 40% 36%); }
+.column-handle, .column-header .quiet-button { color: hsl(var(--column-hue) 22% 52%); }
+.column-handle:hover, .column-header .quiet-button:hover { color: hsl(var(--column-hue) 40% 20%); background: rgba(255,255,255,.55); }
+.add-card-button { margin: 8px 0 9px; border-color: hsl(var(--column-hue) 40% 78%); background: rgba(255,255,255,.6); color: hsl(var(--column-hue) 35% 38%); }
+.add-card-button:hover { border-color: hsl(var(--column-hue) 45% 66%); background: rgba(255,255,255,.95); color: hsl(var(--column-hue) 45% 26%); }
+.column-question, .survey-panel { border-color: hsl(var(--column-hue) 38% 86%); background: rgba(255,255,255,.72); }
+.column-question-label, .survey-panel-label { color: hsl(var(--column-hue) 35% 36%); }
+.card-list { padding: 2px 1px 9px; }
+.column-empty { color: hsl(var(--column-hue) 18% 50%); }
+/* 카드는 흰 종이로 두어 파스텔 판 위에서 또렷하게 */
+.board-card { border-color: rgba(15,15,15,.07); }
+.card-avatar { background: hsl(var(--column-hue) 50% 90%); color: hsl(var(--column-hue) 40% 30%); }
+/* 보드 바탕은 무채색에 가깝게 두어 칼럼 색이 돋보이게 합니다(보드 색을 고른 경우만 아주 옅게). */
+.board-area { background: radial-gradient(120% 60% at 50% -10%, #ffffff 0%, rgba(255,255,255,0) 60%), #f9f9f8; }
+.board-area.has-hue { background: radial-gradient(120% 60% at 50% -10%, #ffffff 0%, rgba(255,255,255,0) 60%), hsl(var(--board-hue) 22% 97.5%); }
+/* 칼럼 메뉴의 색 견본도 같은 파스텔 계열로 */
+.hue-swatch { background: linear-gradient(180deg, hsl(var(--swatch-hue) 62% 66%) 0%, hsl(var(--swatch-hue) 55% 50%) 100%); box-shadow: inset 0 1px 0 rgba(255,255,255,.45); }
+.hue-swatch.is-active { border-color: white; box-shadow: 0 0 0 2px hsl(var(--swatch-hue) 55% 50%); }
+/* 휴대폰 칼럼 탭도 칼럼 색으로 */
+.column-tab { border-color: hsl(var(--column-hue) 40% 84%); background: hsl(var(--column-hue) 60% 96%); color: hsl(var(--column-hue) 40% 26%); }
+.column-tab span { background: rgba(255,255,255,.75); color: hsl(var(--column-hue) 30% 36%); }
+.column-tab.is-active { border-color: hsl(var(--column-hue) 45% 70%); background: linear-gradient(180deg, hsl(var(--column-hue) 65% 88%) 0%, hsl(var(--column-hue) 55% 80%) 100%); color: hsl(var(--column-hue) 45% 18%); box-shadow: inset 0 1px 0 rgba(255,255,255,.6); }
+.column-tab.is-active span { background: rgba(255,255,255,.7); color: hsl(var(--column-hue) 40% 24%); }
+@media (max-width: 760px) {
+  .column-title strong { font-size: 16.5px; }
+}
